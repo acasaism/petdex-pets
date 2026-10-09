@@ -59,6 +59,10 @@ RIM = (255, 247, 242)          # light outer rim for dark backgrounds
 PINK = (230, 162, 175)         # #E6A2AF dusty pink fur
 PINK_D = (198, 126, 145)
 PINK_L = (244, 196, 204)
+LINE_PINK = (185, 112, 127)    # #B9707F interior detail lines (never black inside the body)
+LINE_PINK_D = (169, 96, 111)   # #A9606F mouth / freckles
+BRASS = (176, 122, 42)         # #B07A2A magnifier handle
+BRASS_D = (128, 86, 26)
 BLACK = (22, 16, 20)
 BROWN = (176, 85, 42)          # #B0552A rust
 WHITE = (255, 255, 255)
@@ -145,6 +149,18 @@ def wire(points, width: int = 1) -> np.ndarray:
     return np.array(img, bool)
 
 
+def wire2(points) -> np.ndarray:
+    """2px-wide limb: each segment is thickened across its dominant direction."""
+    m = np.zeros((H, W), bool)
+    for a, b in zip(points, points[1:]):
+        seg = wire([a, b])
+        if abs(b[0] - a[0]) >= abs(b[1] - a[1]):
+            m |= seg | look(seg, 0, -1)
+        else:
+            m |= seg | look(seg, -1, 0)
+    return m
+
+
 def rect(x0, y0, x1, y1) -> np.ndarray:
     return (XX >= x0) & (XX <= x1) & (YY >= y0) & (YY <= y1)
 
@@ -188,9 +204,14 @@ class Canvas:
         if 0 <= x < W and 0 <= y < H:
             self.px[y, x] = (*color, 255)
 
-    def part(self, mask, color, outline=True, shade=None, light=None, depth=2) -> None:
+    def part(self, mask, color, outline=True, shade=None, light=None, depth=2, inner=OUT) -> None:
+        """Fill a part. Its ring is OUT where it falls on transparency (silhouette) and
+        `inner` where it falls on already-drawn pixels (interior detail line)."""
         if outline:
-            self.put(dilate(mask) & ~mask, OUT)
+            ring = dilate(mask) & ~mask
+            opaque = self.px[..., 3] > 0
+            self.put(ring & opaque, inner)
+            self.put(ring & ~opaque, OUT)
         self.put(mask, color)
         shadow = np.zeros_like(mask)
         if shade is not None:
@@ -226,8 +247,7 @@ BEAN = [(29, 13.6), (33, 13.2), (37, 13.8), (40, 15.5), (42, 18), (42.6, 21), (4
         (20.8, 24), (21.5, 19), (23.5, 16), (26, 14.3)]
 NOSE = [(10.6, 29.3), (15.5, 29.0), (20.5, 29.6), (27.6, 32.4), (21.6, 37.2), (16.4, 38.9),
         (13.4, 37.2), (11.0, 33.4)]
-MOUTH_LINE = [(43.6, 22.4), (42.4, 24.0), (40.4, 25.2), (38.6, 27.0), (37.0, 29.0), (35.6, 31.0),
-              (33.8, 32.8), (32.4, 34.3), (32.2, 36.4), (31.4, 38.2), (29.8, 39.2), (27.2, 39.8)]
+MOUTH_LINE = [(43.8, 22.0), (43.2, 23.6), (41.8, 24.8), (40.2, 25.6), (39.0, 25.8)]
 OPEN_MOUTH = [(32.8, 33.2), (35.6, 31.6), (38.4, 29.4), (40.8, 26.6), (42.6, 23.8),
               (43.8, 26.0), (43.4, 30.0), (41.6, 33.6), (38.8, 36.2), (35.4, 37.4), (32.8, 36.4)]
 STAR = ["..#..",
@@ -260,6 +280,7 @@ class Pose:
     uvula: int = 0
     arms: tuple = (((32, 48.5), None), ((36, 49.5), None))   # (hand, elbow) body coords
     arms_behind: bool = False
+    shoulders: Optional[tuple] = None   # override shoulder points (body coords)
     legs: Optional[tuple] = None  # ((ankle, ...), ...) absolute; None = standing
     legs_air: bool = False
     tail_dy: int = 0
@@ -350,10 +371,10 @@ def draw_character(p: Pose) -> np.ndarray:
 
     def draw_arm(k: int) -> None:
         hand, elbow = p.arms[k]
-        sh = Bd(*SHOULDERS[k])
+        sh = Bd(*(p.shoulders or SHOULDERS)[k])
         hd = Bd(*hand)
         pts = [sh, hd] if elbow is None else [sh, Bd(*elbow), hd]
-        c.part(wire(pts) | cross(*hd), PINK)
+        c.part(wire2(pts) | ellipse(hd[0], hd[1], 1.6, 1.35), PINK, shade=PINK_D, depth=1, inner=LINE_PINK)
         ctx["hands"].append(hd)
 
     if p.arms_behind:
@@ -373,10 +394,10 @@ def draw_character(p: Pose) -> np.ndarray:
     c.part(bean, PINK, shade=PINK_D, light=PINK_L)
 
     # Rear spots (one with a pink oval inside)
-    sp1 = ellipse(*Bd(45.2, 36.8), 1.6, 2.1)
-    sp2 = ellipse(*Bd(45.4, 41.6), 2.1, 2.7)
-    c.put(bean & (sp1 | sp2), BLACK)
-    c.put(bean & ellipse(*Bd(45.7, 41.6), 0.7, 1.1), PINK)
+    inside = bean & look(bean, 1, 0) & look(bean, -1, 0) & look(bean, 0, 1) & look(bean, 0, -1)
+    sp1 = ellipse(*Bd(43.4, 37.0), 1.5, 1.9)
+    sp2 = ellipse(*Bd(43.8, 42.2), 2.0, 2.5)
+    c.put(inside & (sp1 | sp2), BLACK)
 
     # Mouth
     if scream:
@@ -401,7 +422,7 @@ def draw_character(p: Pose) -> np.ndarray:
         c.part(tm, TONGUE)
         c.put(wire(tongue[1:4]) & tm, RED)
     elif p.mouth != "none":
-        c.put(wire([Hd(x, y) for x, y in MOUTH_LINE]), OUT)
+        c.put(wire([Hd(x, y) for x, y in MOUTH_LINE]), LINE_PINK_D)
         if p.mouth == "open":
             om = polygon([Hd(x, y) for x, y in OPEN_MOUTH])
             c.part(om, RED)
@@ -423,11 +444,11 @@ def draw_character(p: Pose) -> np.ndarray:
             c.put(om & ~look(om, 0, 1), TONGUE)
         # muzzle freckles and whisker
         for fx, fy in ((28, 35), (26, 37), (29, 37)):
-            c.dot(*Hd(fx, fy), OUT)
-        c.put(wire([Hd(31, 36), Hd(35, 36.6)]), OUT)
+            c.dot(*Hd(fx, fy), LINE_PINK_D)
+        c.put(wire([Hd(31, 36), Hd(34, 36.4)]), LINE_PINK_D)
 
     # Snout tip with a dot and whiskers, then the huge wedge nose
-    c.part(ellipse(*Hd(9.3, 34 + p.nose_dy), 3.3, 3.0), PINK, shade=PINK_D, depth=1)
+    c.part(ellipse(*Hd(9.3, 34 + p.nose_dy), 3.3, 3.0), PINK, shade=PINK_D, depth=1, inner=LINE_PINK)
     c.dot(*Hd(9, 34 + p.nose_dy), OUT)
     c.put(wire([Hd(6, 32.5 + p.nose_dy), Hd(3.6, 31.4 + p.nose_dy)]), OUT)
     c.put(wire([Hd(6, 35.2 + p.nose_dy), Hd(3.6, 36.2 + p.nose_dy)]), OUT)
@@ -490,6 +511,15 @@ def sweat(x: int, y: int) -> Callable:
         bx, by = ctx["Hd"](x, y)
         c.glyph(["..s..", ".sss.", ".lss.", "..s.."], int(round(bx)) - 2, int(round(by)),
                 {"s": SWEAT, "l": SWEAT_L})
+    return fn
+
+
+def clasp() -> Callable:
+    """Compact clasped paws in front of the chest."""
+    def fn(c: Canvas, ctx) -> None:
+        cx, cy = ctx["Bd"](35.0, 39.6)
+        c.part(ellipse(cx, cy, 2.6, 1.9), PINK, shade=PINK_D, depth=1, inner=LINE_PINK)
+        c.dot(cx, cy - 0.5, LINE_PINK)
     return fn
 
 
@@ -576,7 +606,7 @@ def magnifier(look_dx: int) -> Callable:
     def fn(c: Canvas, ctx) -> None:
         lx, ly = ctx["Hd"](RIGHT_EYE[0], RIGHT_EYE[1] - 1)
         hand = ctx["hands"][1]
-        c.part(capsule((lx + 3.6, ly + 4.4), hand, 0.9), WOOD)
+        c.part(capsule((lx + 3.4, ly + 4.2), hand, 0.9), BRASS, shade=BRASS_D, depth=1, inner=BRASS_D)
         c.part(ellipse(lx, ly, 6.2, 6.2), GOLD, shade=GOLD_D, depth=1)
         c.put(ellipse(lx, ly, 5.0, 5.0), GLASS)
         eye = ellipse(lx, ly, 4.0, 4.4)
@@ -586,7 +616,7 @@ def magnifier(look_dx: int) -> Callable:
         c.put(rect(px0, py0, px0 + 2, py0 + 2) & eye, BLACK)
         c.dot(lx - 3, ly - 4, WHITE)
         c.dot(lx - 4, ly - 3, WHITE)
-        c.part(cross(*hand), PINK)
+        c.part(ellipse(hand[0], hand[1], 1.6, 1.35), PINK, shade=PINK_D, depth=1, inner=LINE_PINK)
     return fn
 
 
@@ -624,7 +654,8 @@ def row_run_left():
             dx, lift = RUN_STEP[(i + 4 * k) % 8]
             legs.append((HIPS[k][0] + dx, ANKLE_Y - lift))
         swing = RUN_STEP[i][0]
-        arms = (((32 + 0.8 * swing, 47.5), None), ((36 - 0.8 * swing, 48.5), None))
+        arms = (((31 - 0.375 * swing, 47.5 + (0.5 if swing > 0 else 0)), None),
+                ((37 + 0.375 * swing, 48.5 - (0.5 if swing > 0 else 0)), None))
         flap = [0, 6, 10, 6, 0, -6, -10, -6][i]
         extras = [speed_lines(i)]
         if i in (0, 4):
@@ -644,14 +675,15 @@ def row_run_right():
 
 
 def row_waving():
-    elbow = (46.0, 38.0)
-    hands = [(49, 28), (52, 28), (55, 30), (52, 28)]
+    elbow = (49.0, 34.5)
+    hands = [(50, 28), (53, 28.5), (55, 30), (53, 28.5)]
     frames = []
     for i in range(4):
         frames.append(Pose(
             mouth="open", pupil=(1, 0),
             ears=(ear(EAR_L, d_flap=4 * (i % 2)), ear(EAR_R, d_flap=-4 * (i % 2))),
-            arms=(((32, 48.5), None), (hands[i], elbow)), tail_dy=-(i % 2)))
+            arms=(((32, 48.5), None), (hands[i], elbow)), shoulders=((32.5, 43.0), (45.4, 38.5)),
+            tail_dy=-(i % 2)))
     return [draw_character(p) for p in frames]
 
 
@@ -662,14 +694,15 @@ def row_jumping():
              arms=(((30, 46), None), ((37, 46.5), None))),
         Pose(gy=-3, legs_air=True, eyes="wide", mouth="o",
              ears=((-45, 4.0, -125, 11.0), (62, 5.0, 130, 11.0)),
-             arms=(((29, 39), (30, 45)), ((40, 39), (39, 45))), extras=[bang(9, 14)]),
+             arms=(((20, 44), None), ((52, 38), None)), shoulders=((26.8, 45.0), (46.8, 42.0)),
+             extras=[bang(9, 14)]),
         Pose(gy=-5, legs_air=True, eyes="wide", mouth="open", brows=1,
              ears=((-55, 4.0, -95, 11.0), (60, 4.5, 95, 11.0)),
-             arms=(((27, 36), (29, 43)), ((42, 36), (40, 43))),
+             arms=(((19, 39.5), (22, 42)), ((52, 31), (50.5, 36))), shoulders=((26.8, 44.0), (46.8, 40.0)),
              extras=[sweat(15, 18), sweat(50, 22)]),
         Pose(gy=-2, legs_air=True, eyes="wide", mouth="o",
              ears=((-28, 3.5, -60, 8.5), (38, 3.5, 62, 8.5)),
-             arms=(((28, 38), (30, 44)), ((41, 38), (39, 44)))),
+             arms=(((21, 42), None), ((51, 36), None)), shoulders=((26.8, 45.0), (46.8, 41.0))),
         Pose(hdy=1, bdy=1, mouth="grit",
              ears=(ear(EAR_L, d_flap=-10), ear(EAR_R, d_flap=12)),
              arms=(((30, 48), None), ((37, 49), None)), extras=[dust([22, 47])]),
@@ -811,8 +844,8 @@ def row_waiting():
         frames.append(Pose(
             gx=tremble[i], pupil=(0, -3), mouth="grit", brows=1,
             ears=((-40, 4.5, -122, 11.0), (60, 6.0, 145, 11.0)),
-            arms=(((35, 39), (30, 45)), ((38, 40), (40, 46))), tail_dy=1,
-            extras=[bubble(bob[i])]))
+            arms=(((34, 40), None), ((36, 40), None)), tail_dy=1,
+            extras=[clasp(), bubble(bob[i])]))
     return [draw_character(p) for p in frames]
 
 
@@ -875,7 +908,7 @@ def row_working():
         pose = Pose(
             gx=5, hdy=1, bdy=1, pupil=(-2, -1), mouth="grit", brows=1,
             ears=((-5 + 3 * active, 4.0, 70, 10.0), (35, 4.0, 80 - 4 * active, 9.0)),
-            arms=((hl, (31, 47)), (hr, (34, 48))), pre=[computer(i)], extras=extras)
+            arms=((hl, None), (hr, None)), pre=[computer(i)], extras=extras)
         f = draw_character(pose)
         frames.append(np.ascontiguousarray(f[:, ::-1]))   # face right, toward the monitor
     return frames
@@ -888,7 +921,7 @@ def row_review():
         frames.append(Pose(
             hdx=scan[i], eyes=("squint", "open"), pupil=(scan[i], 0),
             ears=(ear(EAR_L, d_flap=6), EAR_R),
-            arms=(((32, 48.5), None), ((40, 34), (42, 41))),
+            arms=(((32, 48.5), None), ((41, 30), None)), shoulders=((32.5, 43.0), (44.6, 34.5)),
             extras=[magnifier(scan[i] * 2)]))
     return [draw_character(p) for p in frames]
 
@@ -986,6 +1019,25 @@ def make_vs_cell(frame, ref_path: str, path: str, label: str) -> None:
     out.convert("RGB").save(path)
 
 
+LINE_PICKS = [(0, 0), (1, 2), (2, 4), (3, 1), (4, 2), (6, 1), (7, 1), (8, 1)]
+
+
+def make_before_after(before_path: str, atlas: Image.Image, path: str) -> None:
+    before = Image.open(before_path).convert("RGBA")
+    label_w = 90
+    out = Image.new("RGBA", (label_w + CELL_W * 2 * len(LINE_PICKS), CELL_H * 4 + 10), (235, 235, 235, 255))
+    d = ImageDraw.Draw(out)
+    f = font(22)
+    for row, (name, sheet) in enumerate((("v2", before), ("v3", atlas))):
+        y = row * (CELL_H * 2 + 10)
+        d.text((10, y + CELL_H - 12), name, fill=(0, 0, 0, 255), font=f)
+        for i, (r, c_) in enumerate(LINE_PICKS):
+            cell = sheet.crop((c_ * CELL_W, r * CELL_H, (c_ + 1) * CELL_W, (r + 1) * CELL_H))
+            cell = cell.resize((CELL_W * 2, CELL_H * 2), Image.NEAREST)
+            out.alpha_composite(cell, (label_w + i * CELL_W * 2, y))
+    out.convert("RGB").save(path)
+
+
 def make_dark_light(rows, path: str) -> None:
     picks = [(0, 0), (2, 1), (3, 1), (5, 0), (6, 0), (7, 0), (8, 0)]
     out = Image.new("RGBA", (CELL_W * len(picks), CELL_H * 2), (0, 0, 0, 255))
@@ -1078,6 +1130,9 @@ def main() -> int:
     if os.path.exists(REFERENCE):
         make_vs_reference(rows, REFERENCE, os.path.join(here, "vs-reference.png"))
     make_dark_light(rows, os.path.join(here, "dark-light-check.png"))
+    before = os.path.join(here, "backup-v2", "spritesheet.webp")
+    if os.path.exists(before):
+        make_before_after(before, atlas, os.path.join(here, "lines-before-after.png"))
     img_dir = os.path.dirname(REFERENCE)
     for ref_name, (r, c_), out_name, label in (("4.png", (5, 0), "vs-reference-scream.png", "failed[0]"),
                                                ("6.png", (7, 0), "vs-reference-computer.png", "running[0]")):
