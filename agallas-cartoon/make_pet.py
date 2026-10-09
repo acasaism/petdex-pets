@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Generate the "agallas-cartoon" Codex pet: Courage the Cowardly Dog in a flat cartoon style.
 
-Everything is drawn procedurally with pycairo (Bezier paths, round caps/joins,
-native antialiasing) at 2x and downscaled with Pillow LANCZOS.
+v2: the character model is traced from the official 3/4-left model pose (bean body,
+antenna ears with rust-brown flaps, huge wedge nose, tall oval eyes, wire limbs with
+cross-shaped paws, star tail). Everything is drawn procedurally with pycairo (Bezier
+paths, round caps/joins, native antialiasing) at 2x and downscaled with Pillow LANCZOS.
 
 Usage:
     python3 -I make_pet.py            # render atlas, previews, GIFs into ./out
@@ -29,8 +31,8 @@ PET_JSON = {
     "id": PET_ID,
     "displayName": "Agallas (cartoon)",
     "description": (
-        "A cartoon-style pink, cowardly dog with huge eyes and floppy dark ears who "
-        "screams at every error but always gets the job done."
+        "A cartoon-style pink, cowardly dog with huge worried eyes and a giant wedge nose "
+        "who screams at every error but always gets the job done."
     ),
     "spritesheetPath": "spritesheet.webp",
 }
@@ -55,9 +57,8 @@ ROW_SPEC = [
 ]
 
 CX = 96.0       # character centre line
-GROUND = 198.0  # bottom of the feet
-NECK = (CX, 128.0)
-HEAD_Y = 100.0  # head centre at rest
+GROUND = 200.0  # model ground line (bottom of the feet)
+REF_IMAGE = "/tmp/claude-695000033/-home-anton-casais/03a0a754-38c7-4292-926f-6a2ac4514355/images/3.png"
 
 
 # ---------------------------------------------------------------------------
@@ -67,16 +68,21 @@ def rgb(r: int, g: int, b: int) -> Tuple[float, float, float]:
     return (r / 255.0, g / 255.0, b / 255.0)
 
 
-OUT = rgb(36, 22, 40)          # outline
-PINK = rgb(242, 162, 204)      # fur
-PINK_FAR = rgb(216, 132, 182)  # far-side limbs in profile
-EAR = rgb(48, 36, 56)          # ears and back spots
-NOSE = rgb(24, 18, 30)
-NOSE_HI = rgb(140, 128, 152)
+OUT = rgb(20, 14, 18)          # thick black outline
+FUR = rgb(230, 162, 175)       # dusty pink
+BROWN_EAR = rgb(176, 85, 42)   # rust-brown ear flaps and nose band
+NOSE = rgb(20, 14, 18)
 WHITE = (1.0, 1.0, 1.0)
-MOUTH = rgb(112, 22, 54)
-TONGUE = rgb(242, 108, 140)
-UVULA = rgb(214, 66, 104)
+MOUTH = rgb(128, 22, 40)
+TONGUE = rgb(236, 112, 128)
+TEETH = rgb(246, 234, 172)
+RED = rgb(222, 40, 40)
+ORANGE = rgb(244, 156, 46)
+TONGUE_S = rgb(172, 82, 54)
+WOOD = rgb(176, 112, 64)
+SCREEN = rgb(36, 52, 74)
+CODE = rgb(120, 230, 160)
+CODE_FX = rgb(150, 236, 168)
 SWEAT = rgb(132, 202, 255)
 YELLOW = rgb(255, 214, 72)
 DUST = rgb(232, 224, 212)
@@ -84,7 +90,6 @@ LID = rgb(198, 204, 218)
 LID_D = rgb(150, 156, 176)
 GLASS = rgb(214, 238, 252)
 GOLD = rgb(226, 170, 62)
-BROWN = rgb(132, 80, 44)
 BUBBLE = (1.0, 1.0, 1.0)
 
 W = 2.3                 # visible width of the outer contour (final px)
@@ -408,130 +413,196 @@ def fx_taps(x: float, y: float) -> Callable:
     return fn
 
 
-def prop_laptop(ctx: cairo.Context, glow: float = 0.0) -> None:
-    def lid(c: cairo.Context) -> None:
-        c.move_to(70, 160)
-        c.line_to(122, 160)
-        c.curve_to(125, 160, 126, 161, 126.5, 163)
-        c.line_to(132, 184)
-        c.line_to(60, 184)
-        c.line_to(65.5, 163)
-        c.curve_to(66, 161, 67, 160, 70, 160)
-        c.close_path()
-
-    def base(c: cairo.Context) -> None:
-        c.move_to(56, 183)
-        c.line_to(136, 183)
-        c.curve_to(141, 183, 142, 186, 141, 189)
-        c.curve_to(140, 192, 138, 193, 134, 193)
-        c.line_to(58, 193)
-        c.curve_to(54, 193, 52, 192, 51, 189)
-        c.curve_to(50, 186, 51, 183, 56, 183)
-        c.close_path()
-    blob(ctx, [Shape(base)], LID_D)
-    blob(ctx, [Shape(lid)], LID)
-    # bone logo on the back of the lid
-    bx, by = 96.0, 173.0
-    bone = [Shape(ell(bx - 9, by - 2.4, 3.0, 3.0)), Shape(ell(bx - 9, by + 2.4, 3.0, 3.0)),
-            Shape(ell(bx + 9, by - 2.4, 3.0, 3.0)), Shape(ell(bx + 9, by + 2.4, 3.0, 3.0)),
-            Shape(lambda c: (c.rectangle(bx - 9, by - 2.2, 18, 4.4)))]
-    blob(ctx, bone, PINK if glow < 0.5 else rgb(255, 196, 226), ow=1.1, weight=False)
-
-
 # ---------------------------------------------------------------------------
-# Front-facing character
+# Character model (traced from the official 3/4-left model sheet pose).
+# Model units match a 1000x1108 reference drawing; S maps them to cell px.
 # ---------------------------------------------------------------------------
-Ear = Tuple[float, float, float]  # (start angle, end angle, length); 0 = hanging, 180 = up
+S = 0.16
+MX, MY = 500.0, 1090.0          # model point mapped to (CX, GROUND)
+OWM = 2.2 / S                   # outer contour (model units)
+LWM = 1.8 / S                   # detail lines (eye rims, mouth, chin)
+LIMB_OW = 1.25 / S              # outline of the wire limbs
+THIN = 0.8 / S                  # whiskers, creases
+
+EAR_ROOT_L = (458.0, 192.0)
+EAR_ROOT_R = (636.0, 218.0)
+SHOULDER_L = (522.0, 700.0)
+SHOULDER_R = (588.0, 700.0)
+HIP_L = (455.0, 940.0)
+HIP_R = (688.0, 936.0)
+LEAN_PIVOT = (575.0, 950.0)
+
+BODY_PTS = [(470, 520), (640, 430), (722, 470), (766, 560), (790, 660), (796, 760), (782, 850),
+            (746, 915), (680, 962), (585, 982), (492, 968), (434, 930), (409, 862), (404, 782),
+            (412, 718), (432, 684), (445, 610)]
+CRANIUM_PTS = [(440, 192), (520, 178), (612, 198), (672, 246), (692, 310), (690, 390), (672, 446),
+               (610, 505), (515, 548), (420, 540), (338, 478), (308, 385), (330, 268), (385, 212)]
+SNOUT_PTS = [(330, 330), (240, 372), (172, 425), (135, 470), (168, 560), (220, 614), (300, 624),
+             (362, 652), (428, 664), (492, 648), (520, 600), (520, 545), (470, 480), (400, 410)]
+TIP_PTS = [(150, 488), (90, 484), (52, 510), (44, 556), (66, 598), (125, 610), (190, 602), (210, 540)]
+NOSE_PTS = [(116, 456), (230, 452), (330, 474), (412, 520), (350, 572), (262, 626), (210, 612),
+            (160, 560), (122, 488)]
+NOSE_BAND = [(126, 462), (230, 458), (326, 480), (404, 521), (330, 524), (240, 512), (168, 496),
+             (132, 482)]
+JAW = [(508, 544), (566, 524), (624, 486), (660, 436), (676, 384)]
+CHIN = [(424, 662), (490, 648), (517, 606), (521, 566), (508, 542)]
 
 
 @dataclass
 class Pose:
-    gx: float = 0.0
+    gx: float = 0.0          # cell px
     gy: float = 0.0
     sx: float = 1.0
     sy: float = 1.0
-    rot: float = 0.0
-    breath: float = 0.0
-    hdx: float = 0.0
-    hdy: float = 0.0
-    hrot: float = 0.0
-    ear_l: Ear = (58.0, 6.0, 50.0)
-    ear_r: Ear = (58.0, 6.0, 50.0)
-    ear_wave: Tuple[float, float] = (0.0, 0.0)  # amplitude, phase
+    rot: float = 0.0         # whole-figure rotation (deg) about the feet
+    lean: float = 0.0        # upper-body rotation (deg) about the hips
+    # ears: (stalk angle, stalk length, flap angle, flap length, flap width); angles from "up", clockwise
+    ear_l: Tuple[float, float, float, float, float] = (-18.0, 95.0, -70.0, 258.0, 72.0)
+    ear_r: Tuple[float, float, float, float, float] = (49.0, 138.0, 98.0, 256.0, 80.0)
+    ear_wave: Tuple[float, float] = (0.0, 0.0)
     eye_scale: float = 1.0
-    eye_dy: float = 0.0
     pupil: Pt = (0.0, 0.0)
-    pupil_r: float = 3.0
-    gloss: bool = False
-    lid: Tuple[float, float] = (0.0, 0.0)       # level (0 open .. 1 closed), slant (+ worried)
-    lid_l: Optional[Tuple[float, float]] = None  # per-eye override
-    mouth: str = "wavy"
+    pupil_s: float = 1.0
+    lid: Tuple[float, float] = (0.0, 0.0)
+    lid_l: Optional[Tuple[float, float]] = None
+    blink: bool = False
+    brow: float = 1.0        # worry amount
+    brow_up: float = 0.0
+    mouth: str = "smile"
     mouth_amt: float = 1.0
-    mouth_phase: float = 0.0
-    hand_l: Pt = (CX - 25, 161.0)
-    hand_r: Pt = (CX + 25, 161.0)
+    hand_l: Pt = (514.0, 812.0)
+    hand_r: Pt = (578.0, 818.0)
     bend_l: float = 4.0
-    bend_r: float = -4.0
-    foot_l: Pt = (CX - 12, 194.5)
-    foot_r: Pt = (CX + 12, 194.5)
-    knee_l: float = -2.0
-    knee_r: float = 2.0
-    tail: float = 0.0
+    bend_r: float = 4.0
+    foot_l: Pt = (452.0, 1056.0)
+    foot_r: Pt = (690.0, 1058.0)
+    knee_l: float = 6.0
+    knee_r: float = -6.0
+    tail_rot: float = 0.0
+    breath: float = 0.0
     legs: bool = True
-    hands_front: bool = True
-    arms_over_props: bool = False
-    before: List[Callable] = field(default_factory=list)   # world-space, behind character
-    behind_head: List[Callable] = field(default_factory=list)
-    after: List[Callable] = field(default_factory=list)    # world-space, after character
-    fx: List[Callable] = field(default_factory=list)       # cell-space overlays
+    before: List[Callable] = field(default_factory=list)   # model space, unleaned, behind
+    after: List[Callable] = field(default_factory=list)    # model space, leaned, front
+    after_arms: List[Callable] = field(default_factory=list)  # model space, leaned, above the arms
+    fx: List[Callable] = field(default_factory=list)       # cell space
 
 
-def ear_spine(side: int, ear: Ear, wave: Tuple[float, float]) -> List[Pt]:
-    a0, a1, length = ear
-    u = min(max((a0 - 90.0) / 90.0, 0.0), 1.0)
-    root = (side * (24.0 - 7.0 * u), -13.0 - 9.0 * u)
+def pose_matrix(p: Pose) -> cairo.Matrix:
+    m = cairo.Matrix()
+    m.translate(CX + p.gx, GROUND + p.gy)
+    m.rotate(math.radians(p.rot))
+    m.scale(p.sx, p.sy)
+    m.scale(S, S)
+    m.translate(-MX, -MY)
+    return m
 
-    def d(a: float) -> Pt:
-        r = math.radians(a)
-        return (side * math.sin(r), math.cos(r))
-    d0, d1 = d(a0), d(a1)
-    c = (root[0] + d0[0] * length * 0.48, root[1] + d0[1] * length * 0.48)
-    tip = (c[0] + d1[0] * length * 0.55, c[1] + d1[1] * length * 0.55)
-    pts = qbez(root, c, tip, 26)
+
+def lean_matrix(p: Pose) -> cairo.Matrix:
+    m = cairo.Matrix()
+    m.translate(*LEAN_PIVOT)
+    m.rotate(math.radians(p.lean))
+    m.translate(-LEAN_PIVOT[0], -LEAN_PIVOT[1])
+    return m
+
+
+def to_cell(p: Pose, x: float, y: float, leaned: bool = True) -> Pt:
+    if leaned:
+        x, y = lean_matrix(p).transform_point(x, y)
+    return pose_matrix(p).transform_point(x, y)
+
+
+def dirv(angle: float) -> Pt:
+    a = math.radians(angle)
+    return (math.sin(a), -math.cos(a))
+
+
+def draw_ear(ctx: cairo.Context, root: Pt, ear, wave: Tuple[float, float]) -> None:
+    sa, sl, fa, fl, fw = ear
+    d = dirv(sa)
+    base = (root[0] + d[0] * sl, root[1] + d[1] * sl)
+    ctl = (root[0] + d[0] * sl * 0.5 - d[1] * 6, root[1] + d[1] * sl * 0.5 + d[0] * 6)
+    line(ctx, lambda c: (c.move_to(*root), c.curve_to(ctl[0], ctl[1], ctl[0], ctl[1], base[0], base[1])),
+         17.0, OUT)
+    df = dirv(fa)
+    nx, ny = -df[1], df[0]
     amp, ph = wave
-    if amp:
-        out = []
-        n = len(pts)
-        for i, p in enumerate(pts):
-            t = i / (n - 1)
-            a = pts[max(i - 1, 0)]
-            b = pts[min(i + 1, n - 1)]
-            tx, ty = b[0] - a[0], b[1] - a[1]
-            ln = math.hypot(tx, ty) or 1.0
-            off = amp * t * math.sin(t * 2.6 * math.pi + ph)
-            out.append((p[0] - ty / ln * off, p[1] + tx / ln * off))
-        pts = out
-    return pts
+    pts = []
+    for i in range(26):
+        t = i / 25
+        off = 10 * math.sin(math.pi * t) + amp * t * math.sin(2 * math.pi * t + ph)
+        pts.append((base[0] + df[0] * fl * t + nx * off, base[1] + df[1] * fl * t + ny * off))
+
+    def wfn(t: float) -> float:
+        return 15 + (fw - 15) * (math.sin(math.pi * min(t * 1.08, 1.0)) ** 0.7) - 7 * t
+
+    flap = ribbon(pts, wfn)
+    blob(ctx, [Shape(flap)], OUT, ow=OWM * 0.45, weight=False)
+    # rust-brown inner face on the upper side (towards the head when the ear stands up)
+    side = 1.0 if ny < 0 else -1.0
+    if abs(ny) < 0.35:
+        mid = pts[len(pts) // 2]
+        side = 1.0 if (nx * (560 - mid[0])) > 0 else -1.0
+    bpts = []
+    for i, p in enumerate(pts):
+        t = i / 25
+        s_ = math.sin(math.pi * t)
+        bpts.append((p[0] + nx * side * fw * 0.2 * s_, p[1] + ny * side * fw * 0.2 * s_))
+    ctx.save()
+    ctx.new_path()
+    flap(ctx)
+    ctx.clip()
+    ctx.new_path()
+    ribbon(bpts[2:24], lambda t: fw * 0.46 * (math.sin(math.pi * t) ** 0.8) + 2, cap=True)(ctx)
+    ctx.set_source_rgb(*BROWN_EAR)
+    ctx.fill()
+    ctx.restore()
 
 
-def draw_ear(ctx: cairo.Context, side: int, ear: Ear, wave: Tuple[float, float]) -> None:
-    spine = ear_spine(side, ear, wave)
-    wmax = 12.5
-    path = ribbon(spine, lambda t: wmax * (0.62 + 0.38 * min(1.0, t * 2.4)) - 1.2 * t)
-    blob(ctx, [Shape(path)], EAR)
+def star_path(cx: float, cy: float, r1: float, r2: float, rot: float) -> PathFn:
+    def f(c: cairo.Context) -> None:
+        c.new_sub_path()
+        for k in range(10):
+            ang = math.radians(rot + 36 * k) - math.pi / 2
+            r = r1 if k % 2 == 0 else r2
+            x, y = cx + r * math.cos(ang), cy + r * math.sin(ang)
+            if k == 0:
+                c.move_to(x, y)
+            else:
+                c.line_to(x, y)
+        c.close_path()
+    return f
 
 
-def draw_eye(ctx: cairo.Context, ex: float, ey: float, rx: float, ry: float, side: int,
-             pupil: Pt, pr: float, lid: Tuple[float, float], gloss: bool) -> None:
-    level, slant = lid
-    eye = ell(ex, ey, rx, ry)
-    if level >= 0.95:  # closed: pink lid with a lash curve
-        fill_outline(ctx, eye, PINK, WD * 1.1)
+def plus_paw(ctx: cairo.Context, x: float, y: float, angle: float, size: float = 1.0,
+             fill=None) -> None:
+    """Tiny cross-shaped hand/foot: three rounded lobes plus the wrist, pointing along angle."""
+    fill = fill or FUR
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.rotate(math.radians(angle))
+    ctx.scale(size, size)
+    shapes = [Shape(ell(0, 0, 12, 12)), Shape(ell(-19, 3, 13, 10.5)), Shape(ell(19, 3, 13, 10.5)),
+              Shape(ell(0, 19, 10.5, 13))]
+    blob(ctx, shapes, fill, ow=LIMB_OW, weight=False)
+    ctx.restore()
 
-        def lash(c: cairo.Context) -> None:
-            c.move_to(ex - rx * 0.8, ey + 1)
-            c.curve_to(ex - rx * 0.3, ey + 5, ex + rx * 0.3, ey + 5, ex + rx * 0.8, ey + 1)
-        line(ctx, lash, WD)
+
+def draw_limb(ctx: cairo.Context, a: Pt, b: Pt, bend: float, width: float, paw: float,
+              fill=None) -> None:
+    fill = fill or FUR
+    blob(ctx, [Shape(noodle(a, b, bend, bend * 0.6), width=width)], fill, ow=LIMB_OW, weight=False)
+    ang = math.degrees(math.atan2(b[0] - a[0], -(b[1] - a[1]))) + 180.0
+    plus_paw(ctx, b[0], b[1], ang, paw, fill)
+
+
+def draw_eye(ctx: cairo.Context, cx: float, cy: float, rx: float, ry: float, rot: float,
+             pupil: Pt, ps: float, lid: Tuple[float, float], side: int, blink: bool) -> None:
+    eye = ell(cx, cy, rx, ry, rot)
+    if blink:
+        fill_outline(ctx, eye, FUR, LWM)
+        line(ctx, lambda c: (c.move_to(cx - rx * 0.85, cy + 8),
+                             c.curve_to(cx - rx * 0.3, cy + 40, cx + rx * 0.3, cy + 40, cx + rx * 0.85, cy + 8)),
+             LWM)
         return
     ctx.new_path()
     eye(ctx)
@@ -541,594 +612,550 @@ def draw_eye(ctx: cairo.Context, ex: float, ey: float, rx: float, ry: float, sid
     ctx.new_path()
     eye(ctx)
     ctx.clip()
-    px, py = ex + pupil[0], ey + pupil[1]
-    ctx.set_source_rgb(*NOSE)
+    px, py = pupil
     ctx.new_path()
-    ell(px, py, pr, pr * 1.08)(ctx)
+    ell(px, py, 13 * ps, 24 * ps, rot * 0.5)(ctx)
+    ctx.set_source_rgb(*NOSE)
     ctx.fill()
-    if gloss:
-        ctx.set_source_rgb(*WHITE)
+    if ps > 0.6:
         ctx.new_path()
-        ell(px - pr * 0.38, py - pr * 0.42, pr * 0.34, pr * 0.34)(ctx)
+        ell(px + 3 * ps, py - 9 * ps, 5.5 * ps, 6.5 * ps)(ctx)
+        ctx.set_source_rgb(*WHITE)
         ctx.fill()
-    if level > 0.0:
-        # lid line: inner end (towards the nose) higher when slant > 0 (worried)
-        yl = ey - ry + 2 * ry * level
-        inner_x, outer_x = ex - side * (rx + 2), ex + side * (rx + 2)
-        y_in, y_out = yl - slant * ry * 0.6, yl + slant * ry * 0.6
+    level, slant = lid
+    if level > 0:
+        yl = cy - ry + 2 * ry * level
+        x_in, x_out = cx + side * (rx + 12), cx - side * (rx + 12)
+        y_in, y_out = yl - slant * ry * 0.35, yl + slant * ry * 0.35
 
         def lidp(c: cairo.Context) -> None:
-            c.move_to(inner_x, y_in)
-            c.line_to(outer_x, y_out)
-            c.line_to(outer_x, ey - ry - 4)
-            c.line_to(inner_x, ey - ry - 4)
+            c.move_to(x_in, y_in)
+            c.line_to(x_out, y_out)
+            c.line_to(x_out, cy - ry - 30)
+            c.line_to(x_in, cy - ry - 30)
             c.close_path()
         ctx.new_path()
         lidp(ctx)
-        ctx.set_source_rgb(*PINK)
+        ctx.set_source_rgb(*FUR)
         ctx.fill()
-        line(ctx, lambda c: (c.move_to(inner_x, y_in), c.line_to(outer_x, y_out)), WD * 1.1)
+        line(ctx, lambda c: (c.move_to(x_in, y_in), c.line_to(x_out, y_out)), LWM)
     ctx.restore()
-    line(ctx, eye, WD * 1.15)
+    line(ctx, eye, LWM * 1.1)
 
 
-def scream_jaw(a: float) -> PathFn:
-    return ell(0, 16 + 10 * a, 20 + 4 * a, 17 + 11 * a)
+def brow(ctx: cairo.Context, p0: Pt, c: Pt, p1: Pt, w: float = 24.0) -> None:
+    pts = qbez(p0, c, p1, 18)
+    path = ribbon(pts, lambda t: 3 + w * math.sin(math.pi * (0.15 + 0.85 * t)) ** 1.2)
+    ctx.new_path()
+    path(ctx)
+    ctx.set_source_rgb(*OUT)
+    ctx.fill()
 
 
-def scream_hole(a: float) -> PathFn:
-    top = 11.0
-    bot = top + 12 + 25 * a
-    hw = 12 + 5 * a
+def offset_curve(pts: Sequence[Pt], d: float) -> List[Pt]:
+    out = []
+    n = len(pts)
+    for i, p in enumerate(pts):
+        a = pts[max(i - 1, 0)]
+        b = pts[min(i + 1, n - 1)]
+        tx, ty = b[0] - a[0], b[1] - a[1]
+        ln = math.hypot(tx, ty) or 1.0
+        out.append((p[0] - ty / ln * d, p[1] + tx / ln * d))
+    return out
 
-    def f(c: cairo.Context) -> None:
-        c.new_sub_path()
-        c.move_to(-hw, top)
-        c.curve_to(-hw * 0.5, top - 4, hw * 0.5, top - 4, hw, top)
-        c.curve_to(hw * 1.15, top + (bot - top) * 0.55, hw * 0.6, bot, 0, bot)
-        c.curve_to(-hw * 0.6, bot, -hw * 1.15, top + (bot - top) * 0.55, -hw, top)
-        c.close_path()
-    return f
+
+def jaw_dense() -> List[Pt]:
+    path = []
+    for i in range(len(JAW) - 1):
+        for t in np.linspace(0, 1, 6, endpoint=False):
+            path.append(lerp(JAW[i], JAW[i + 1], float(t)))
+    path.append(JAW[-1])
+    return path
 
 
 def draw_mouth(ctx: cairo.Context, p: Pose) -> None:
     kind = p.mouth
-    if kind == "wavy":
-        pts = [(x, 26.5 + 1.2 * math.sin(x * 0.75 + p.mouth_phase)) for x in np.linspace(-9, 9, 10)]
-        line(ctx, spline(pts, closed=False), WD)
-        line(ctx, lambda c: (c.move_to(-10.5, 24.5), c.line_to(-9, 26.5)), WD * 0.8)
-        line(ctx, lambda c: (c.move_to(10.5, 24.5), c.line_to(9, 26.5)), WD * 0.8)
-    elif kind == "grimace":
-        top, bot, hw = 21.5, 29.5, 10.5
-
-        def teeth(c: cairo.Context) -> None:
-            c.move_to(-hw, top + 1)
-            c.curve_to(-hw * 0.4, top - 0.6, hw * 0.4, top - 0.6, hw, top + 1)
-            c.curve_to(hw + 1.5, top + 4, hw + 0.5, bot - 1, hw - 1, bot)
-            c.curve_to(hw * 0.4, bot + 1, -hw * 0.4, bot + 1, -hw + 1, bot)
-            c.curve_to(-hw - 0.5, bot - 1, -hw - 1.5, top + 4, -hw, top + 1)
-            c.close_path()
-        fill_outline(ctx, teeth, WHITE, WD)
-        mid = (top + bot) / 2 + 0.3
-        line(ctx, lambda c: (c.move_to(-hw + 0.5, mid),
-                             c.curve_to(-3, mid + 0.8, 3, mid - 0.8, hw - 0.5, mid)), WD * 0.75)
-        for x in (-5.5, 0.0, 5.5):
-            line(ctx, lambda c, x=x: (c.move_to(x, top + 0.6), c.line_to(x, bot - 0.4)), WD * 0.7)
-    elif kind == "smile":
-        def sm(c: cairo.Context) -> None:
-            c.move_to(-11, 21.5)
-            c.curve_to(-4, 23.5, 4, 23.5, 11, 21.5)
-            c.curve_to(9, 29, 4, 31, 0, 31)
-            c.curve_to(-4, 31, -9, 29, -11, 21.5)
-            c.close_path()
+    if kind in ("smile", "frown", "flat"):
+        line(ctx, spline(JAW, closed=False), LWM)
+        curl = {"smile": 1.0, "frown": -1.0, "flat": 0.0}[kind] * p.mouth_amt
+        line(ctx, lambda c: (c.move_to(640, 360 - 4 * curl),
+                             c.curve_to(660, 372 + 12 * curl, 690, 366 + 10 * curl, 708, 352 - 8 * curl)), LWM)
+    elif kind == "grit":
+        jd = jaw_dense()
+        upper = offset_curve(jd, -40 * p.mouth_amt)
+        lower = offset_curve(jd, 38 * p.mouth_amt)
+        teeth = spline(upper + lower[::-1], closed=True)
+        fill_outline(ctx, teeth, TEETH, LWM)
+        ctx.save()
         ctx.new_path()
-        sm(ctx)
+        teeth(ctx)
+        ctx.clip()
+        line(ctx, spline(jd, closed=False), LWM * 0.8)
+        n = len(jd)
+        for i in range(3, n - 2, 5):
+            a, b = upper[i], lower[i]
+            line(ctx, lambda c, a=a, b=b: (c.move_to(*a), c.line_to(*b)), LWM * 0.75)
+        ctx.restore()
+    elif kind == "open":
+        jd = jaw_dense()
+        upper = offset_curve(jd, -14)
+        a = p.mouth_amt
+        lower = [(x + 30 * a * math.sin(math.pi * i / (len(jd) - 1)),
+                  y + 95 * a * math.sin(math.pi * (i / (len(jd) - 1)) ** 0.8))
+                 for i, (x, y) in enumerate(jd)]
+        hole = spline(upper + lower[::-1], closed=True)
+        ctx.new_path()
+        hole(ctx)
         ctx.set_source_rgb(*MOUTH)
         ctx.fill()
         ctx.save()
         ctx.new_path()
-        sm(ctx)
+        hole(ctx)
         ctx.clip()
         ctx.set_source_rgb(*TONGUE)
-        ell(0, 31.5, 6.5, 4.0)(ctx)
+        ell(600, 600 + 30 * (1 - a), 70, 45, -30)(ctx)
         ctx.fill()
-        ctx.set_source_rgb(*WHITE)
-        ctx.rectangle(-12, 19, 24, 6.4)
+        ctx.new_path()
+        ribbon(offset_curve(jd, 2), lambda t: 30)(ctx)
+        ctx.set_source_rgb(*TEETH)
         ctx.fill()
         ctx.restore()
-        line(ctx, sm, WD)
+        line(ctx, hole, LWM)
     elif kind == "o":
         a = p.mouth_amt
-        fill_outline(ctx, ell(0, 27, 3.8 * a + 1, 4.6 * a + 1), MOUTH, WD)
-    elif kind == "open":
-        a = p.mouth_amt
-        hole = ell(0, 26 + 1.5 * a, 6.5 + 2 * a, 5 + 3 * a)
-        ctx.new_path()
-        hole(ctx)
-        ctx.set_source_rgb(*MOUTH)
-        ctx.fill()
-        ctx.save()
-        ctx.new_path()
-        hole(ctx)
-        ctx.clip()
-        ctx.set_source_rgb(*TONGUE)
-        ell(0, 30 + 4 * a, 6 + 2 * a, 4)(ctx)
-        ctx.fill()
-        ctx.restore()
-        line(ctx, hole, WD)
-    elif kind == "scream":
-        a = p.mouth_amt
-        hole = scream_hole(a)
-        ctx.new_path()
-        hole(ctx)
-        ctx.set_source_rgb(*MOUTH)
-        ctx.fill()
-        ctx.save()
-        ctx.new_path()
-        hole(ctx)
-        ctx.clip()
-        bot = 11 + 12 + 25 * a
-        wag = 3.0 * math.sin(p.mouth_phase)
-        ctx.set_source_rgb(*TONGUE)
-        ell(wag, bot - 3, 11 + 3 * a, 7 + 3 * a, wag * 2)(ctx)
-        ctx.fill()
-        line(ctx, lambda c: (c.move_to(wag, bot - 8 - 2 * a), c.line_to(wag * 1.2, bot - 3)), WD * 0.8)
-        # uvula
-        uv = 0.8 * math.sin(p.mouth_phase * 1.7)
-
-        def uvula(c: cairo.Context) -> None:
-            c.move_to(-2.4, 8)
-            c.line_to(2.4, 8)
-            c.curve_to(2.4, 13, 3.4 + uv, 16, 0 + uv, 17.5)
-            c.curve_to(-3.4 + uv, 16, -2.4, 13, -2.4, 8)
-            c.close_path()
-        fill_outline(ctx, uvula, UVULA, WD * 0.7)
-        # two upper teeth
-        hw = 12 + 5 * a
-        for sx in (-1, 1):
-            def tooth(c: cairo.Context, sx=sx) -> None:
-                x0 = sx * (hw - 7)
-                c.move_to(x0 - 3.2, 9)
-                c.line_to(x0 + 3.2, 9)
-                c.line_to(x0 + 2.2, 16)
-                c.curve_to(x0 + 1, 17, x0 - 1, 17, x0 - 2.2, 16)
-                c.close_path()
-            fill_outline(ctx, tooth, WHITE, WD * 0.7)
-        ctx.restore()
-        line(ctx, hole, WD * 1.1)
+        hole = ell(548, 560, 26 + 12 * a, 30 + 18 * a, -20)
+        fill_outline(ctx, hole, MOUTH, LWM)
+        line(ctx, spline(JAW[2:], closed=False), LWM)
 
 
-def draw_head(ctx: cairo.Context, p: Pose) -> None:
-    for side, ear in ((-1, p.ear_l), (1, p.ear_r)):
-        wave = (p.ear_wave[0], p.ear_wave[1] + (0 if side < 0 else 1.7))
-        draw_ear(ctx, side, ear, wave)
-    for fn in p.behind_head:
-        fn(ctx)
-    shapes = [Shape(ell(0, 0, 31, 27))]
-    if p.mouth == "scream":
-        shapes.append(Shape(scream_jaw(p.mouth_amt)))
-    else:
-        shapes.append(Shape(ell(0, 18, 16.5, 14)))
-    blob(ctx, shapes, PINK)
-    # eyes
-    es = p.eye_scale
-    ey = -9.0 + p.eye_dy - (2.5 if p.mouth == "scream" else 0.0)
-    rx, ry = 12.4 * es, 14.8 * es
-    for side in (-1, 1):
-        lid = p.lid_l if (side < 0 and p.lid_l is not None) else p.lid
-        draw_eye(ctx, side * 12.0 * min(es, 1.06), ey, rx, ry, side,
-                 p.pupil, p.pupil_r, lid, p.gloss)
+def draw_face_details(ctx: cairo.Context, p: Pose) -> None:
+    line(ctx, spline(CHIN, closed=False), OWM * 0.85)
     draw_mouth(ctx, p)
-    # nose
-    ny = 13.5 if p.mouth != "scream" else 6.0
+    ctx.set_source_rgb(*OUT)
+    for (x, y) in ((450, 560), (405, 603), (458, 606)):
+        ctx.new_path()
+        ell(x, y, 7.5, 8.5)(ctx)
+        ctx.fill()
+    line(ctx, lambda c: (c.move_to(495, 584), c.curve_to(530, 588, 560, 594, 590, 606)), THIN)
+    # snout tip: dot and whiskers
     ctx.new_path()
-    ell(0, ny, 6.8, 4.7)(ctx)
-    ctx.set_source_rgb(*NOSE)
+    ell(106, 550, 8, 9)(ctx)
+    ctx.set_source_rgb(*OUT)
+    ctx.fill()
+    for (a, b) in (((78, 520), (22, 490)), ((64, 538), (2, 548)), ((82, 508), (52, 470))):
+        line(ctx, lambda c, a=a, b=b: (c.move_to(*a), c.line_to(*b)), THIN)
+    # nose wedge: black with a rust-brown top band
+    ctx.new_path()
+    spline(NOSE_PTS)(ctx)
+    ctx.set_source_rgb(*OUT)
     ctx.fill()
     ctx.new_path()
-    ell(-2.3, ny - 1.6, 2.1, 1.1, -10)(ctx)
-    ctx.set_source_rgb(*NOSE_HI)
+    spline(NOSE_BAND)(ctx)
+    ctx.set_source_rgb(*BROWN_EAR)
     ctx.fill()
 
 
-def head_matrix(p: Pose) -> cairo.Matrix:
-    m = cairo.Matrix()
-    m.translate(NECK[0], NECK[1] - p.breath * 1.2)
-    m.rotate(math.radians(p.hrot))
-    m.translate(p.hdx, HEAD_Y - NECK[1] + p.hdy)
-    return m
+def draw_eyes(ctx: cairo.Context, p: Pose) -> None:
+    es = p.eye_scale
+    eyes = [((532, 335 - 20 * (es - 1)), 70 * es, 132 * es, 3, (545, 347), 1),
+            ((372, 302 - 20 * (es - 1)), 60 * es, 110 * es, 15, (392, 325), -1)]
+    for (c, rx, ry, rot, pup, side) in eyes:
+        lid = p.lid_l if (side < 0 and p.lid_l is not None) else p.lid
+        pup = (pup[0] + p.pupil[0], pup[1] + p.pupil[1] - 20 * (es - 1))
+        draw_eye(ctx, c[0], c[1], rx, ry, rot, pup, p.pupil_s, lid, side, p.blink)
+    if not p.blink:
+        line(ctx, lambda c: (c.move_to(494, 462 + 40 * (es - 1)),
+                             c.curve_to(512, 470, 530, 472, 550, 470)), THIN * 1.3)
+        line(ctx, lambda c: (c.move_to(288, 374), c.curve_to(296, 392, 306, 402, 322, 410)), THIN * 1.3)
+    # worried brows: inner ends go up with worry
+    w = p.brow
+    up = p.brow_up + 25 * (es - 1)
+    brow(ctx, (308, 224 + 12 * (1 - w) - up), (360, 176 - up), (433, 156 - 16 * (w - 1) - up))
+    brow(ctx, (523, 160 - 16 * (w - 1) - up), (586, 168 - up), (606, 248 + 12 * (1 - w) - up))
 
 
-def torso_path(breath: float) -> PathFn:
-    top, bottom, hw = 124.0, 178.0, 16.0
-
-    def f(c: cairo.Context) -> None:
-        c.save()
-        c.translate(CX, bottom)
-        c.scale(1 + 0.03 * breath, 1 + 0.035 * breath)
-        c.translate(-CX, -bottom)
-        c.move_to(CX - 8, top)
-        c.curve_to(CX - 12, top + 12, CX - hw - 1, bottom - 28, CX - hw, bottom - 12)
-        c.curve_to(CX - hw + 1, bottom - 2, CX - 8, bottom + 1, CX, bottom + 1)
-        c.curve_to(CX + 8, bottom + 1, CX + hw - 1, bottom - 2, CX + hw, bottom - 12)
-        c.curve_to(CX + hw + 1, bottom - 28, CX + 12, top + 12, CX + 8, top)
-        c.close_path()
-        c.restore()
-    return f
-
-
-def draw_arm(ctx: cairo.Context, side: int, hand: Pt, bend: float, breath: float) -> None:
-    sh = (CX + side * 10.0, 137.0 - breath * 1.0)
-    blob(ctx, [Shape(noodle(sh, hand, bend, bend * 0.6), width=5.0),
-               Shape(ell(hand[0], hand[1], 4.6, 4.2))], PINK)
-
-
-def draw_front(ctx: cairo.Context, p: Pose) -> None:
+def draw_character(ctx: cairo.Context, p: Pose) -> None:
     ctx.save()
-    ctx.translate(CX + p.gx, GROUND + p.gy)
-    ctx.rotate(math.radians(p.rot))
-    ctx.scale(p.sx, p.sy)
-    ctx.translate(-CX, -GROUND)
+    ctx.transform(pose_matrix(p))
     for fn in p.before:
         fn(ctx)
-    # tail (behind the body)
-    tw = p.tail
-    tail_spine = qbez((CX + 6, 170), (CX + 30, 176 - tw * 2), (CX + 33 + tw * 4, 148 - abs(tw)))
-    blob(ctx, [Shape(ribbon(tail_spine, lambda t: 5.0 - 2.4 * t))], PINK)
-    # legs
+    lm = lean_matrix(p)
     if p.legs:
-        for side, foot, knee in ((-1, p.foot_l, p.knee_l), (1, p.foot_r, p.knee_r)):
-            hip = (CX + side * 7.0, 172.0)
-            blob(ctx, [Shape(noodle(hip, (foot[0], foot[1] - 1.5), knee, knee * 0.5), width=5.6),
-                       Shape(ell(foot[0] + side * 2.6, foot[1], 7.2, 3.7))], PINK)
-    # body + back spots peeking around the flanks
-    body = torso_path(p.breath)
-    blob(ctx, [Shape(body)], PINK)
+        for hip, foot, knee in ((HIP_L, p.foot_l, p.knee_l), (HIP_R, p.foot_r, p.knee_r)):
+            h = lm.transform_point(*hip)
+            draw_limb(ctx, h, foot, knee, 16.0, 1.0)
+    ctx.save()
+    ctx.transform(lm)
+    draw_ear(ctx, EAR_ROOT_L, p.ear_l, p.ear_wave)
+    draw_ear(ctx, EAR_ROOT_R, p.ear_r, (p.ear_wave[0], p.ear_wave[1] + 1.9))
+    blob(ctx, [Shape(star_path(836, 772, 54, 22, 20 + p.tail_rot))], FUR, ow=OWM)
+    body = spline(BODY_PTS)
+    ctx.save()
+    by = 980
+    ctx.translate(600, by)
+    ctx.scale(1 + 0.012 * p.breath, 1 + 0.02 * p.breath)
+    ctx.translate(-600, -by)
+    blob(ctx, [Shape(body), Shape(spline(CRANIUM_PTS)), Shape(ell(722, 372, 44, 66)),
+               Shape(spline(SNOUT_PTS)), Shape(spline(TIP_PTS))], FUR, ow=OWM)
     ctx.save()
     ctx.new_path()
     body(ctx)
     ctx.clip()
-    ctx.set_source_rgb(*EAR)
-    for (x, y, rx, ry) in ((CX - 16, 143, 6.0, 5.0), (CX + 17, 156, 5.5, 6.5), (CX - 17, 166, 4, 4)):
+    ctx.set_source_rgb(*OUT)
+    for (x, y, rx, ry) in ((786, 588, 28, 40), (778, 690, 40, 54)):
         ctx.new_path()
         ell(x, y, rx, ry)(ctx)
         ctx.fill()
+    ctx.set_source_rgb(*FUR)
+    ctx.new_path()
+    ell(790, 690, 13, 23)(ctx)
+    ctx.fill()
     ctx.restore()
-    if not p.hands_front:
-        draw_arm(ctx, -1, p.hand_l, p.bend_l, p.breath)
-        draw_arm(ctx, 1, p.hand_r, p.bend_r, p.breath)
-    # head
-    ctx.save()
-    ctx.transform(head_matrix(p))
-    draw_head(ctx, p)
+    draw_face_details(ctx, p)
+    draw_eyes(ctx, p)
     ctx.restore()
-    if p.hands_front and not p.arms_over_props:
-        draw_arm(ctx, -1, p.hand_l, p.bend_l, p.breath)
-        draw_arm(ctx, 1, p.hand_r, p.bend_r, p.breath)
     for fn in p.after:
         fn(ctx)
-    if p.arms_over_props:
-        draw_arm(ctx, -1, p.hand_l, p.bend_l, p.breath)
-        draw_arm(ctx, 1, p.hand_r, p.bend_r, p.breath)
+    draw_limb(ctx, SHOULDER_L, p.hand_l, p.bend_l, 13.0, 0.95)
+    draw_limb(ctx, SHOULDER_R, p.hand_r, p.bend_r, 13.0, 0.95)
+    for fn in p.after_arms:
+        fn(ctx)
+    ctx.restore()
     ctx.restore()
     for fn in p.fx:
         fn(ctx)
 
 
 # ---------------------------------------------------------------------------
-# Side view (running right)
+# Scream (failed): the whole dog becomes a gaping, bristling face
 # ---------------------------------------------------------------------------
-def draw_side(ctx: cairo.Context, i: int, n: int = 8) -> None:
-    phi = 2 * math.pi * i / n
-    bob = 2.4 * abs(math.cos(phi)) - 1.2
-    hip = (78.0, 166.0 + bob)
-    sh = (101.0, 147.0 + bob)
-    hx, hy = 116.0, 119.0 + bob * 0.6
-    ground = GROUND
+SCREAM_S = 0.132
 
-    # speed lines and dust behind
-    k = i % 4
-    fx_speed([(14 + k * 2, 124, 20 - k * 3), (8 + (k * 3) % 7, 148, 26), (18 - k, 172, 16 + k * 2)])(ctx)
-    if i in (0, 4):
-        fx_dust(44, 192, 1.0)(ctx)
-    if i in (1, 5):
-        fx_dust(32, 189, 0.8)(ctx)
 
-    def leg(ph: float, color) -> None:
-        fx_ = hip[0] + 4 + 18 * math.cos(ph)
-        lift = 14 * max(0.0, -math.sin(ph))
-        foot = (fx_, ground - 4.0 - lift)
-        bend = -8.0 if lift > 1 else -3.5
-        tilt = -22 * max(0.0, -math.sin(ph)) * (1 if math.cos(ph) > 0 else -0.6)
-        blob(ctx, [Shape(noodle(hip, (foot[0], foot[1] - 1.0), bend, bend * 0.4), width=5.6, fill=color),
-                   Shape(ell(foot[0] + 3.0, foot[1], 7.4, 3.7, tilt), fill=color)], color)
-
-    def arm(ph: float, color) -> None:
-        sw = math.cos(ph + math.pi)
-        hx_ = sh[0] + 22 * sw
-        hy_ = sh[1] + 13 - 10 * max(sw, 0.0) + 2 * min(sw, 0.0)
-        bend = 3.0 if sw > 0 else -3.0
-        blob(ctx, [Shape(noodle(sh, (hx_, hy_), bend, bend * 0.5), width=5.0, fill=color),
-                   Shape(ell(hx_, hy_, 4.5, 4.1), fill=color)], color)
-
-    def ear(root: Pt, length: float, lift: float, ph: float, wmax: float) -> None:
-        sp = []
-        for j in range(26):
-            t = j / 25
-            sp.append((root[0] - length * t,
-                       root[1] - lift * t + 4.0 * t * math.sin(2 * math.pi * (t * 1.15) - ph)
-                       + 7 * t * t))
-        blob(ctx, [Shape(ribbon(sp, lambda t: wmax * (0.6 + 0.4 * min(1.0, t * 2.4)) - 1.0 * t))], EAR)
-
-    # tail streaming back
-    tail_spine = []
-    for j in range(20):
-        t = j / 19
-        tail_spine.append((hip[0] - 6 - 30 * t,
-                           hip[1] - 2 - 13 * t + 3.2 * t * math.sin(2 * math.pi * (t * 0.9) - phi)))
-    blob(ctx, [Shape(ribbon(tail_spine, lambda t: 5.0 - 2.4 * t))], PINK)
-
-    leg(phi + math.pi, PINK_FAR)
-    arm(phi + math.pi, PINK_FAR)
-    # ears stream back behind the head
-    ear((hx - 4, hy - 18), 46, 15, phi + 1.2, 10.5)
-    ear((hx - 8, hy - 6), 46, -2, phi, 11.5)
-    leg(phi, PINK)
-    near_forward = -math.cos(phi) > 0  # arms swing opposite to the same-side leg
-    if not near_forward:
-        arm(phi, PINK)
-
-    # torso (with a neck reaching into the head) + back spots
-    torso = ell(90, 156 + bob, 20, 13, -36)
-    neck = ell(104, 143 + bob, 9, 9)
-    blob(ctx, [Shape(torso), Shape(neck)], PINK)
+def draw_scream(ctx: cairo.Context, k: int) -> None:
+    rng = np.random.default_rng(1000 + k)
+    jit = [-2.4, 2.4, -1.8, 2.8, -2.8, 1.8, -2.2, 2.2][k]
+    ctx.save()
+    ctx.translate(CX + jit, 106)
+    ctx.rotate(math.radians(1.1 * jit))
+    ctx.scale(SCREAM_S, SCREAM_S)
+    a = 0.92 + 0.08 * (k % 2)
+    # rigid limbs sticking out, with vibration ticks
+    limbs = [((-230, -60), (-560, -250), 0), ((-270, 120), (-610, 60), 0), ((290, 160), (600, 270), 0),
+             ((250, 260), (540, 430), 0), ((-90, 330), (-200, 640), 1), ((120, 330), (170, 650), 1)]
+    for (a0, b0, is_leg) in limbs:
+        wob = 10 * math.sin(k * 2.1 + a0[0])
+        b = (b0[0] + wob, b0[1] - wob)
+        draw_limb(ctx, a0, b, 0, 16.0 if is_leg else 13.0, 1.15 if is_leg else 1.05)
+        dx, dy = b[0] - a0[0], b[1] - a0[1]
+        ln = math.hypot(dx, dy)
+        nx, ny = -dy / ln, dx / ln
+        for s_ in (-1, 1):
+            m0 = lerp(a0, b, 0.55)
+            line(ctx, lambda c, m0=m0, s_=s_: (c.move_to(m0[0] + nx * 26 * s_, m0[1] + ny * 26 * s_),
+                                              c.line_to(m0[0] + nx * 26 * s_ + dx * 0.25, m0[1] + ny * 26 * s_ + dy * 0.25)),
+                 THIN)
+    # ears stiff and straight up
+    flutter = 3 * math.sin(k * 1.7)
+    draw_ear(ctx, (40, -330), (-4, 70, -2 + flutter, 250, 66), (0, 0))
+    draw_ear(ctx, (170, -300), (22, 80, 18 - flutter, 240, 70), (0, 0))
+    # bristling head silhouette: blob + radial spikes
+    head_pts = []
+    for i in range(36):
+        t = 2 * math.pi * i / 36
+        r = 1.0 + 0.04 * math.sin(3 * t)
+        head_pts.append((330 * r * math.cos(t), 40 + 380 * r * math.sin(t)))
+    spikes = []
+    for i in range(30):
+        t = math.radians(-70 + 290 * i / 29)
+        base_r = 1.0
+        bx, by = 330 * math.cos(t), 40 + 380 * math.sin(t)
+        L = 55 + 45 * rng.random()
+        w = 0.08
+        p0 = (330 * 0.92 * math.cos(t - w), 40 + 380 * 0.92 * math.sin(t - w))
+        p1 = (330 * 0.92 * math.cos(t + w), 40 + 380 * 0.92 * math.sin(t + w))
+        tip = (bx * (1 + L / 350 * base_r), 40 + (by - 40) * (1 + L / 350))
+        spikes.append(Shape(lambda c, p0=p0, p1=p1, tip=tip: (c.move_to(*p0), c.line_to(*tip),
+                                                            c.line_to(*p1), c.close_path())))
+    snout = spline([(-150, -140), (-330, -110), (-420, -60), (-400, 30), (-250, 40), (-150, 40)])
+    tip = spline([(-400, -70), (-470, -76), (-505, -40), (-490, 10), (-430, 20), (-390, -10)])
+    blob(ctx, spikes + [Shape(spline(head_pts)), Shape(snout), Shape(tip)], FUR, ow=OWM)
+    # fine fur lines between the spikes
+    for i in range(16):
+        t = math.radians(-60 + 270 * i / 15 + 4)
+        r0, r1 = 0.95, 1.13 + 0.12 * rng.random()
+        line(ctx, lambda c, t=t, r0=r0, r1=r1: (c.move_to(330 * r0 * math.cos(t), 40 + 380 * r0 * math.sin(t)),
+                                                c.line_to(330 * r1 * math.cos(t), 40 + 380 * r1 * math.sin(t))), THIN)
+    # gaping mouth under the nose
+    mouth = spline([(-260, 20), (-60, 0), (140, -40), (275, -90), (300, 60), (240, 230 * a),
+                    (90, 330 * a), (-110, 340 * a), (-240, 250 * a), (-290, 120)])
+    ctx.new_path()
+    mouth(ctx)
+    ctx.set_source_rgb(*RED)
+    ctx.fill()
     ctx.save()
     ctx.new_path()
-    torso(ctx)
+    mouth(ctx)
     ctx.clip()
-    ctx.set_source_rgb(*EAR)
-    for (x, y, r) in ((82, 146, 5.2), (93, 140, 4.2), (73, 156, 4.2)):
+    # throat "U"
+    line(ctx, lambda c: (c.move_to(150, 20), c.curve_to(150, 110, 230, 110, 230, 20)), 26, ORANGE)
+    # lower teeth
+    for (x, y) in ((-170, 250 * a), (-60, 300 * a), (60, 300 * a), (170, 230 * a)):
+        fill_outline(ctx, lambda c, x=x, y=y: (c.move_to(x - 40, y + 60), c.curve_to(x - 38, y - 30, x + 38, y - 30, x + 40, y + 60),
+                                                c.close_path()), TEETH, LWM)
+    ctx.restore()
+    # flapping tongue out to the left
+    ph = k * 1.4
+    tpts = [(120 - 760 * t, 160 + 50 * t + 55 * t * math.sin(2 * math.pi * t * 1.3 + ph)) for t in np.linspace(0, 1, 30)]
+    blob(ctx, [Shape(ribbon(tpts, lambda t: 70 - 20 * t))], TONGUE_S, ow=12, weight=False)
+    line(ctx, spline(offset_curve(tpts, 0), closed=False), 8, ORANGE)
+    # upper fangs hanging from under the nose
+    for (x, y, h) in ((-200, 14, 120), (60, -22, 110)):
+        fill_outline(ctx, lambda c, x=x, y=y, h=h: (c.move_to(x - 42, y), c.line_to(x + 42, y - 8),
+                                                     c.curve_to(x + 38, y + h * 0.6, x + 10, y + h, x - 6, y + h),
+                                                     c.curve_to(x - 30, y + h * 0.8, x - 40, y + h * 0.4, x - 42, y),
+                                                     c.close_path()), TEETH, LWM)
+    line(ctx, mouth, LWM * 1.2)
+    # nose wedge + snout tip dot + freckles
+    nose = spline([(-430, -100), (-300, -110), (-190, -80), (-120, -30), (-200, 20), (-300, 30), (-390, -20)])
+    ctx.new_path()
+    nose(ctx)
+    ctx.set_source_rgb(*OUT)
+    ctx.fill()
+    ctx.new_path()
+    spline([(-420, -94), (-300, -103), (-196, -76), (-134, -36), (-230, -48), (-330, -66)])(ctx)
+    ctx.set_source_rgb(*BROWN_EAR)
+    ctx.fill()
+    ctx.set_source_rgb(*OUT)
+    for (x, y) in ((-462, -30), (-100, -40), (-60, -10), (-110, 0)):
         ctx.new_path()
-        ell(x, y + bob, r * 1.15, r)(ctx)
+        ell(x, y, 8, 9)(ctx)
         ctx.fill()
+    # huge eyes with pin-prick pupils
+    for (cx, cy, rx, ry, rot, px, py) in ((-140, -265, 112, 150, -12, -112, -262), (95, -250, 128, 168, 6, 112, -246)):
+        ex = 6 * math.sin(k * 2.3)
+        draw_eye(ctx, cx, cy, rx, ry, rot, (px + ex, py), 0.55, (0.0, 0.0), 1, False)
     ctx.restore()
-
-    # head (profile facing right, screaming while running)
-    ctx.save()
-    ctx.translate(hx, hy)
-    ctx.rotate(math.radians(4 * math.sin(phi * 2)))
-    shapes = [Shape(ell(0, 0, 26, 24)), Shape(ell(22, 5, 18, 10, 6)),
-              Shape(ell(17, 15.5, 13, 9.5, 22))]
-    blob(ctx, shapes, PINK)
-    hole = ell(21, 13, 9.5, 5.8, 20)
-    ctx.new_path()
-    hole(ctx)
-    ctx.set_source_rgb(*MOUTH)
-    ctx.fill()
-    ctx.save()
-    ctx.new_path()
-    hole(ctx)
-    ctx.clip()
-    ctx.set_source_rgb(*TONGUE)
-    ell(21, 18, 8.5, 4.2, 20)(ctx)
-    ctx.fill()
-    ctx.restore()
-    line(ctx, hole, WD)
-    ctx.new_path()
-    ell(40, 2.0, 5.6, 4.5, 10)(ctx)
-    ctx.set_source_rgb(*NOSE)
-    ctx.fill()
-    ctx.new_path()
-    ell(38.4, 0.2, 1.9, 1.0)(ctx)
-    ctx.set_source_rgb(*NOSE_HI)
-    ctx.fill()
-    for (ex, ey, rx, ry) in ((6.0, -13.0, 10.0, 12.6), (18.0, -11.0, 11.0, 13.6)):
-        draw_eye(ctx, ex, ey, rx, ry, 1, (3.8, -0.5), 1.8, (0.0, 0.0), False)
-    ctx.restore()
-
-    if near_forward:
-        arm(phi, PINK)
-    if i in (2, 6):
-        fx_sweat(hx - 30, hy - 30, -30, 0.9)(ctx)
+    # shake marks and flying sweat in cell space
+    fx_shake(CX - 74, 120, -1)(ctx)
+    fx_shake(CX + 74, 120, 1)(ctx)
+    if k % 2 == 0:
+        fx_sweat(28 + (k % 4) * 2, 52 + k, -40)(ctx)
+    else:
+        fx_sweat(166 - (k % 4) * 2, 50 + k, 40)(ctx)
 
 
 # ---------------------------------------------------------------------------
-# Rows
+# Props
 # ---------------------------------------------------------------------------
-def row_idle() -> List[Pose]:
-    base = Pose(lid=(0.06, 0.25))
-    seq = [
-        dict(breath=0.0, pupil=(0, 0), tail=0.0, mouth_phase=0.0),
-        dict(breath=0.6, pupil=(0, 0), tail=0.6, mouth_phase=0.8),
-        dict(breath=1.0, pupil=(-4.0, 0.5), tail=1.0, mouth_phase=1.6, hrot=-2),
-        dict(breath=0.6, pupil=(4.0, 0.5), tail=0.6, mouth_phase=2.4, hrot=2),
-        dict(breath=0.2, pupil=(0, 0), tail=0.0, mouth_phase=3.2, lid=(1.0, 0.0)),
-        dict(breath=0.0, pupil=(0, -0.5), tail=-0.4, mouth_phase=4.0),
-    ]
-    out = []
-    for k, s in enumerate(seq):
-        sway = (2.5 * math.sin(k / 6 * 2 * math.pi))
-        p = replace(base, ear_l=(58 + sway, 6 + sway, 50), ear_r=(58 - sway, 6 - sway, 50), **s)
-        out.append(p)
-    return out
-
-
-def row_waving() -> List[Pose]:
-    hands = [(CX + 50, 90), (CX + 56, 99), (CX + 50, 90), (CX + 42, 84)]
-    bends = [13, 11, 13, 14]
-    out = []
-    for k, (h, b) in enumerate(zip(hands, bends)):
-        arcs = [fx_arcs(h[0], h[1], 200 if k % 2 == 0 else -40, 60, (8.0, 12.5))] if k in (1, 3) else []
-        out.append(Pose(mouth="smile", hrot=4, hdx=1, pupil=(1.0, -1.0), pupil_r=3.2,
-                        lid=(0.0, 0.0), hand_r=h, bend_r=b, hand_l=(CX - 25, 161),
-                        ear_l=(60, 8, 50), ear_r=(66 + 4 * (k % 2), 14, 48),
-                        tail=[0.0, 1.0, 0.0, -1.0][k], fx=arcs))
-    return out
-
-
-def row_jumping() -> List[Pose]:
-    crouch = Pose(sy=0.86, sx=1.08, eye_scale=1.1, pupil_r=1.7, mouth="o", mouth_amt=0.8,
-                  ear_l=(48, 12, 48), ear_r=(48, 12, 48), knee_l=-7, knee_r=7,
-                  foot_l=(CX - 15, 194.5), foot_r=(CX + 15, 194.5),
-                  hand_l=(CX - 15, 150), hand_r=(CX + 15, 150), bend_l=-6, bend_r=6,
-                  fx=[fx_bang(146, 60, 1.0)])
-    up = Pose(gy=-20, sy=1.1, sx=0.94, eye_scale=1.15, pupil_r=1.5, mouth="open", mouth_amt=0.8,
-              ear_l=(34, 12, 50), ear_r=(34, 12, 50), knee_l=-1, knee_r=1,
-              foot_l=(CX - 8, 196), foot_r=(CX + 8, 196),
-              hand_l=(CX - 27, 112), hand_r=(CX + 27, 112), bend_l=8, bend_r=-8,
-              fx=[fx_bang(150, 46, 0.9)])
-    peak = Pose(gy=-21, eye_scale=1.18, pupil_r=1.3, mouth="scream", mouth_amt=0.55, mouth_phase=1.0,
-                ear_l=(128, 146, 44), ear_r=(128, 146, 44), ear_wave=(2.0, 0.5),
-                knee_l=-8, knee_r=8, foot_l=(CX - 14, 188), foot_r=(CX + 14, 188),
-                hand_l=(CX - 36, 110), hand_r=(CX + 36, 110), bend_l=6, bend_r=-6,
-                fx=[fx_sweat(40, 70, -30), fx_sweat(152, 72, 30)])
-    down = Pose(gy=-9, sy=1.05, sx=0.96, eye_scale=1.12, pupil_r=1.6, mouth="open", mouth_amt=1.0,
-                ear_l=(160, 172, 44), ear_r=(160, 172, 44), ear_wave=(1.5, 2.0),
-                knee_l=-2, knee_r=2, foot_l=(CX - 10, 196), foot_r=(CX + 10, 196),
-                hand_l=(CX - 30, 118), hand_r=(CX + 30, 118), bend_l=6, bend_r=-6)
-    land = Pose(sy=0.9, sx=1.07, mouth="grimace", pupil=(0, 1), pupil_r=2.8, lid=(0.25, 0.3),
-                ear_l=(70, 30, 46), ear_r=(70, 30, 46), knee_l=-6, knee_r=6,
-                foot_l=(CX - 15, 194.5), foot_r=(CX + 15, 194.5),
-                hand_l=(CX - 24, 158), hand_r=(CX + 24, 158), bend_l=-5, bend_r=5,
-                fx=[fx_dust(60, 194, 1.1), fx_dust(132, 194, 1.1)])
-    return [crouch, up, peak, down, land]
-
-
-def row_failed() -> List[Pose]:
-    jit = [-2.2, 2.2, -1.6, 2.6, -2.6, 1.6, -2.0, 2.0]
-    out = []
-    for k in range(8):
-        flail = 4.0 * math.sin(k * math.pi / 2)
-        fx = [fx_shake(CX - 46, 150, -1), fx_shake(CX + 46, 150, 1)]
-        if k % 2 == 0:
-            fx.append(fx_sweat(28 + (k % 4) * 3, 64 + k, -40))
-        else:
-            fx.append(fx_sweat(164 - (k % 4) * 3, 62 + k, 40))
-        out.append(Pose(gx=jit[k], rot=0.9 * jit[k], sy=1.03, sx=0.98,
-                        eye_scale=1.14, pupil_r=1.25,
-                        pupil=(0.8 * jit[k] * 0.5, -1.0), mouth="scream",
-                        mouth_amt=0.85 + 0.15 * (k % 2), mouth_phase=k * 1.3,
-                        ear_l=(174, 181 + 3 * (k % 2), 50), ear_r=(174, 181 + 3 * ((k + 1) % 2), 50),
-                        ear_wave=(2.4, k * 1.6), hdy=-3,
-                        hand_l=(CX - 36, 108 + flail), hand_r=(CX + 36, 108 - flail),
-                        bend_l=7, bend_r=-7,
-                        knee_l=4 if k % 2 else -3, knee_r=-4 if k % 2 else 3,
-                        foot_l=(CX - 14, 194.5), foot_r=(CX + 14, 194.5), fx=fx))
-    return out
-
-
-def row_waiting() -> List[Pose]:
-    out = []
-    trem = [-0.8, 0.8, -0.6, 0.8, -0.8, 0.6]
-    for k in range(6):
-        bob = 2.0 * math.sin(k / 6 * 2 * math.pi)
-        out.append(Pose(gx=trem[k], hrot=8 + 1.5 * math.sin(k * math.pi / 3), hdx=1,
-                        pupil=(1.5, -4.0), pupil_r=4.6, gloss=True, lid=(0.12, 0.45),
-                        mouth="wavy", mouth_phase=k * 1.1,
-                        hand_l=(CX - 3.5, 140), hand_r=(CX + 3.5, 141), bend_l=-9, bend_r=9,
-                        ear_l=(64, 14 + trem[k] * 3, 50), ear_r=(92, 34 - trem[k] * 3, 48),
-                        knee_l=4.5, knee_r=-4.5, foot_l=(CX - 13, 194.5), foot_r=(CX + 13, 194.5),
-                        tail=0.3 * trem[k],
-                        fx=[fx_question(150, 46 + bob)] + ([fx_shake(CX - 34, 186, -1, 2, 0.6),
-                                                             fx_shake(CX + 34, 186, 1, 2, 0.6)]
-                                                            if k % 2 == 0 else [])))
-    return out
-
-
-def row_working() -> List[Pose]:
-    code = rgb(150, 236, 168)
-    particles = [(CX - 50, "1", 0), (CX + 50, "0", 14), (CX - 46, "{}", 26), (CX + 47, "1", 38)]
-    out = []
-    for k in range(6):
-        up_l = k % 2 == 0
-        hl = (CX - 17, 155 if up_l else 162)
-        hr = (CX + 17, 162 if up_l else 155)
-        down = hr if up_l else hl
-        fx = [fx_taps(down[0], down[1] + 1), fx_star(CX - 22 + (k * 17) % 44, 154 - (k % 3) * 2, 3.4)]
-        for (x, txt, off) in particles:
-            t = ((k * 8 + off) % 48) / 48.0
-            fx.append(fx_glyph(x + 3 * math.sin(t * 6.0), 150 - 46 * t, txt, code, 11.5 if len(txt) == 1 else 10.0))
-        if k in (1, 4):
-            fx.append(fx_sweat(150, 74 + k, 35, 0.9))
-        if k in (2, 5):
-            fx.append(fx_sweat(42, 76 - k, -35, 0.85))
-        out.append(Pose(hdy=4 + (1.0 if up_l else 0.0), hrot=(-2 if up_l else 2),
-                        pupil=(0.0, 5.5), pupil_r=2.6, lid=(0.28, 0.32), mouth="grimace",
-                        hand_l=hl, hand_r=hr, bend_l=6, bend_r=-6, legs=False,
-                        ear_l=(66 + (6 if up_l else 0), 20, 48), ear_r=(66 + (0 if up_l else 6), 20, 48),
-                        tail=2.0 if up_l else -1.5, arms_over_props=True,
-                        after=[lambda c: prop_laptop(c)], fx=fx))
-    return out
-
-
-def magnifier_fx(p: Pose, lens_local: Pt, look: Pt) -> Callable:
-    """Draw the magnifier (lens over the viewer-left eye) plus the holding arm."""
+def prop_stool_laptop(k: int) -> Callable:
     def fn(ctx: cairo.Context) -> None:
-        m = head_matrix(p)
+        # stool
+        for (x0, x1) in ((190, 176), (410, 424)):
+            blob(ctx, [Shape(lambda c, x0=x0, x1=x1: (c.move_to(x0, 890), c.line_to(x1, 1088)), width=18)],
+                 WOOD, ow=LIMB_OW, weight=False)
+        blob(ctx, [Shape(lambda c: c.rectangle(150, 872, 300, 26))], WOOD, ow=OWM * 0.5, weight=False)
+        # laptop: deck and an open screen whose display faces Courage and the viewer
+        deck = spline([(150, 872), (420, 872), (446, 852), (184, 846)])
+        blob(ctx, [Shape(lambda c: (c.move_to(146, 874), c.line_to(424, 874), c.line_to(452, 846),
+                                    c.line_to(180, 842), c.close_path()))], LID, ow=OWM * 0.5, weight=False)
+        screen = (lambda c: (c.move_to(170, 846), c.line_to(128, 640), c.line_to(300, 610),
+                             c.line_to(330, 842), c.close_path()))
+        blob(ctx, [Shape(screen)], LID_D, ow=OWM * 0.5, weight=False)
+        disp = (lambda c: (c.move_to(180, 826), c.line_to(146, 656), c.line_to(290, 630),
+                           c.line_to(314, 826), c.close_path()))
+        ctx.new_path()
+        disp(ctx)
+        ctx.set_source_rgb(*SCREEN)
+        ctx.fill()
         ctx.save()
-        ctx.transform(m)
-        lx, ly = lens_local
-        R = 16.5
-        # handle from the rim down-left towards the paw
-        ang = math.radians(118)
-        h0 = (lx + math.cos(ang) * R, ly + math.sin(ang) * R)
-        h1 = (lx + math.cos(ang) * (R + 26), ly + math.sin(ang) * (R + 26))
-        blob(ctx, [Shape(lambda c: (c.move_to(*h0), c.line_to(*h1)), width=5.2)], BROWN)
+        ctx.new_path()
+        disp(ctx)
+        ctx.clip()
+        for j in range(7):
+            y = 676 + j * 22 - (k * 11) % 22
+            x0 = 162 + (j * 37 % 3) * 14
+            ln = 40 + (j * 53 + k * 31) % 70
+            line(ctx, lambda c, y=y, x0=x0, ln=ln: (c.move_to(x0, y + (x0 - 160) * -0.17),
+                                                    c.line_to(x0 + ln, y + (x0 + ln - 160) * -0.17)),
+                 9, CODE)
+        ctx.restore()
+        line(ctx, disp, LWM * 0.7)
+        _ = deck
+    return fn
+
+
+def magnifier(look: Pt, lens_c: Pt) -> Callable:
+    def fn(ctx: cairo.Context) -> None:
+        lx, ly = lens_c
+        R = 132
+        h0 = (lx + R * 0.5, ly + R * 0.87)
+        h1 = (lx + R * 0.5 + 60, ly + R * 0.87 + 150)
+        blob(ctx, [Shape(lambda c: (c.move_to(*h0), c.line_to(*h1)), width=30)], WOOD, ow=LIMB_OW, weight=False)
         lens = ell(lx, ly, R, R)
         ctx.new_path()
         lens(ctx)
         ctx.set_source_rgb(*GLASS)
         ctx.fill()
-        # magnified eye behind the glass
         ctx.save()
         ctx.new_path()
         lens(ctx)
         ctx.clip()
-        ex, ey = -12.0, -9.0
         ctx.translate(lx, ly)
-        ctx.scale(1.32, 1.32)
+        ctx.scale(1.25, 1.25)
         ctx.translate(-lx, -ly)
-        draw_eye(ctx, ex, ey, 12.4, 14.8, -1, look, 3.6, (0.0, 0.0), True)
+        draw_eye(ctx, 532, 335, 70, 132, 3, (545 + look[0], 347 + look[1]), 1.1, (0.0, 0.0), 1, False)
         ctx.restore()
-        # glare
-        ctx.set_source_rgb(*WHITE)
-        ctx.set_line_width(2.2)
         ctx.new_path()
-        ctx.arc(lx, ly, R - 4.5, math.radians(200), math.radians(245))
+        ctx.arc(lx, ly, R - 30, math.radians(200), math.radians(245))
+        ctx.set_source_rgb(*WHITE)
+        ctx.set_line_width(16)
         ctx.stroke()
-        # rim
         ctx.new_path()
         lens(ctx)
         ctx.set_source_rgb(*OUT)
-        ctx.set_line_width(6.6)
+        ctx.set_line_width(44)
         ctx.stroke()
         ctx.new_path()
         lens(ctx)
         ctx.set_source_rgb(*GOLD)
-        ctx.set_line_width(3.0)
+        ctx.set_line_width(20)
         ctx.stroke()
-        hx, hy = m.transform_point(*h1)
-        ctx.restore()
-        # holding arm and paw (world space)
-        draw_arm(ctx, -1, (hx, hy), -6, p.breath)
     return fn
 
 
+# ---------------------------------------------------------------------------
+# Rows (the model faces left; running-right is the mirrored run cycle)
+# ---------------------------------------------------------------------------
+def row_idle() -> List[Pose]:
+    out = []
+    pupils = [(0, 0), (0, 0), (-12, 4), (10, 0), (0, 0), (0, -3)]
+    for k in range(6):
+        s = math.sin(k / 6 * 2 * math.pi)
+        out.append(Pose(breath=s, pupil=pupils[k], blink=(k == 4), tail_rot=8 * s,
+                        ear_l=(-18, 95, -70 + 4 * s, 258, 72), ear_r=(49, 138, 98 - 4 * s, 256, 80),
+                        brow_up=3 * s))
+    return out
+
+
+def row_run_left() -> List[Pose]:
+    out = []
+    for i in range(8):
+        phi = 2 * math.pi * i / 8
+        feet = []
+        for ph, hip in ((phi, HIP_L), (phi + math.pi, HIP_R)):
+            x = hip[0] - 70 + 150 * math.cos(ph)
+            lift = 110 * max(0.0, math.sin(ph))
+            feet.append((x, 1056 - lift))
+        sw = math.cos(phi)
+        flap = 8 * math.sin(phi * 2)
+        k = i % 4
+        fx = [fx_speed([(160 + k * 2, 100, 16 - k * 3), (164 - (k * 3) % 5, 128, 16), (160 + k, 156, 12 + k * 2)])]
+        if i in (0, 4):
+            fx.append(fx_dust(150, 194, 1.0))
+        if i in (2, 6):
+            fx.append(fx_sweat(156, 60, 35, 0.9))
+        out.append(Pose(gx=2, gy=-4 * abs(math.sin(phi)), lean=-11, mouth="grit", mouth_amt=0.7,
+                        pupil=(-14, 2), pupil_s=0.75, brow=1.3, eye_scale=1.05,
+                        ear_l=(34, 80, 102 + flap, 178, 56), ear_r=(74, 100, 114 - flap, 172, 62),
+                        ear_wave=(16, phi), tail_rot=20 * sw,
+                        foot_l=feet[0], foot_r=feet[1], knee_l=26, knee_r=26,
+                        hand_l=(400 - 60 * sw, 640 + 40 * sw), hand_r=(470 + 60 * sw, 620 - 40 * sw),
+                        bend_l=-16, bend_r=16, fx=fx))
+    return out
+
+
+def row_waving() -> List[Pose]:
+    hands = [(790, 470), (830, 525), (790, 470), (750, 432)]
+    out = []
+    for k, h in enumerate(hands):
+        p = Pose(mouth="open", mouth_amt=0.9, brow=0.25, pupil=(6, -6), hand_r=h, bend_r=-30,
+                 hand_l=(514, 812), ear_l=(-10, 95, -45, 250, 64), ear_r=(35, 130, 60 + 6 * (k % 2), 250, 72),
+                 tail_rot=[0, 15, 0, -15][k])
+        cx, cy = to_cell(p, h[0], h[1])
+        if k in (1, 3):
+            p.fx = [fx_arcs(cx, cy, -60 if k == 1 else 200, 60, (9.0, 13.5))]
+        out.append(p)
+    return out
+
+
+def row_jumping() -> List[Pose]:
+    crouch = Pose(sy=0.88, sx=1.07, mouth="grit", mouth_amt=0.9, eye_scale=1.08, pupil_s=0.7,
+                  brow=1.3, ear_l=(-30, 90, -150, 240, 62), ear_r=(60, 130, 150, 240, 70),
+                  foot_l=(430, 1056), foot_r=(712, 1058), knee_l=20, knee_r=-20,
+                  hand_l=(500, 760), hand_r=(570, 765), fx=[fx_bang(36, 60, 1.0)])
+    up = Pose(gy=-16, sy=1.07, sx=0.95, mouth="open", mouth_amt=0.7, eye_scale=1.12, pupil_s=0.6,
+              brow=1.4, ear_l=(-14, 90, -170, 230, 60), ear_r=(30, 125, 170, 230, 66),
+              foot_l=(462, 1066), foot_r=(678, 1068), knee_l=2, knee_r=-2,
+              hand_l=(440, 610), hand_r=(640, 600), bend_l=-12, bend_r=12, fx=[fx_bang(30, 46, 0.9)])
+    peak = Pose(gy=-8, mouth="open", mouth_amt=1.0, eye_scale=1.15, pupil_s=0.55, brow=1.5,
+                ear_l=(-14, 80, -48, 196, 58), ear_r=(28, 105, 46, 196, 64), ear_wave=(10, 0.5),
+                foot_l=(470, 1010), foot_r=(670, 1012), knee_l=30, knee_r=-30,
+                hand_l=(380, 600), hand_r=(700, 590), bend_l=-14, bend_r=14,
+                fx=[fx_sweat(30, 70, -30), fx_sweat(168, 72, 30)])
+    down = Pose(gy=-1, sy=1.03, sx=0.97, mouth="open", mouth_amt=0.6, eye_scale=1.1, pupil_s=0.65, brow=1.3,
+                ear_l=(-10, 76, -30, 178, 58), ear_r=(24, 98, 34, 178, 64), ear_wave=(8, 2.0),
+                foot_l=(458, 1066), foot_r=(684, 1068), knee_l=3, knee_r=-3,
+                hand_l=(420, 640), hand_r=(660, 640), bend_l=-12, bend_r=12)
+    land = Pose(sy=0.9, sx=1.06, mouth="smile", brow=0.7, pupil=(0, 6),
+                ear_l=(-40, 85, -120, 245, 64), ear_r=(70, 125, 125, 245, 72),
+                foot_l=(428, 1056), foot_r=(712, 1058), knee_l=18, knee_r=-18,
+                hand_l=(500, 800), hand_r=(590, 806),
+                fx=[fx_dust(54, 196, 1.1), fx_dust(142, 196, 1.1)])
+    return [crouch, up, peak, down, land]
+
+
+def row_waiting() -> List[Pose]:
+    trem = [-0.8, 0.8, -0.6, 0.8, -0.8, 0.6]
+    out = []
+    for k in range(6):
+        bob = 2.0 * math.sin(k / 6 * 2 * math.pi)
+        fx = [fx_question(160, 34 + bob)]
+        if k % 2 == 0:
+            fx += [fx_shake(64, 192, -1, 2, 0.6), fx_shake(132, 192, 1, 2, 0.6)]
+        out.append(Pose(gx=trem[k], mouth="grit", mouth_amt=0.7, brow=1.5, brow_up=8,
+                        pupil=(12, -26), pupil_s=1.05, lid=(0.0, 0.0),
+                        ear_l=(-35, 85, -150 + 4 * trem[k], 240, 62), ear_r=(68, 125, 150 - 4 * trem[k], 240, 70),
+                        hand_l=(486, 612), hand_r=(530, 618), bend_l=-20, bend_r=-26,
+                        knee_l=-8 + 4 * trem[k], knee_r=8 - 4 * trem[k],
+                        foot_l=(470, 1056), foot_r=(676, 1058), tail_rot=6 * trem[k], fx=fx))
+    return out
+
+
+def row_working() -> List[Pose]:
+    out = []
+    for k in range(6):
+        up = k % 2 == 0
+        hl = (378, 820 if up else 842)
+        hr = (430, 842 if up else 820)
+        fx = []
+        p = Pose(mouth="grit", mouth_amt=0.75, brow=1.3, pupil=(-18, 14), pupil_s=0.85,
+                 lid=(0.18, 0.5), hand_l=hl, hand_r=hr, bend_l=20, bend_r=24,
+                 ear_l=(-18 + (6 if up else 0), 95, -80 + (10 if up else 0), 250, 62),
+                 ear_r=(49, 135, 108 - (0 if up else 10), 250, 70),
+                 tail_rot=(14 if up else -10), before=[prop_stool_laptop(k)])
+        down = hr if up else hl
+        cx, cy = to_cell(p, down[0], down[1])
+        fx.append(fx_taps(cx, cy - 4))
+        if k in (1, 4):
+            fx.append(fx_sweat(158, 70 + k, 35, 0.9))
+        p.fx = fx
+        out.append(p)
+    return out
+
+
 def row_review() -> List[Pose]:
-    scan = [-2.0, 0.0, 2.0, 3.0, 1.0, -1.0]
+    scan = [-24.0, 0.0, 24.0, 36.0, 12.0, -12.0]
     out = []
     for k in range(6):
         s = scan[k]
-        p = Pose(hrot=-5, pupil=(s * 1.4, 1.0), pupil_r=2.8,
-                 lid=(0.0, 0.0), lid_l=None, mouth="wavy", mouth_phase=k * 0.6,
-                 hand_l=(CX - 30, 150), hand_r=(CX + 13, 132), bend_r=-8,
-                 ear_l=(62, 10, 50), ear_r=(70, 20, 50), breath=0.5 * math.sin(k * math.pi / 3),
-                 tail=0.6 * math.sin(k * math.pi / 3))
-        # right eye squints; left eye is magnified by the glass
-        p = replace(p, lid=(0.48, -0.25))
-        lens = (-12.0 + s, -8.0 + 0.5 * abs(s))
-        p = replace(p, after=[magnifier_fx(p, lens, (s * 1.6, 1.0))])
-        out.append(p)
+        lens = (532 + s * 0.6, 330)
+        handle_end = (lens[0] + 132 * 0.5 + 60, lens[1] + 132 * 0.87 + 150)
+        out.append(Pose(mouth="flat", brow=0.9, pupil=(s * 0.5, 4), lid_l=(0.5, 0.3), lid=(0.0, 0.0),
+                        hand_r=handle_end, bend_r=10, hand_l=(470, 668), bend_l=-14,
+                        ear_l=(-18, 95, -66, 258, 64), ear_r=(49, 138, 92, 256, 72),
+                        tail_rot=5 * math.sin(k), breath=0.6 * math.sin(k * math.pi / 3),
+                        after=[magnifier((s * 0.7, 6), lens)]))
     return out
 
 
@@ -1153,18 +1180,23 @@ def render(draw: Callable[[cairo.Context], None]) -> Image.Image:
     return Image.fromarray(arr)
 
 
+def front(p: Pose) -> Image.Image:
+    return render(lambda c: draw_character(c, p))
+
+
 def build_frames() -> List[List[Image.Image]]:
-    rows: List[List[Image.Image]] = []
-    rows.append([render(lambda c, p=p: draw_front(c, p)) for p in row_idle()])
-    run_r = [render(lambda c, i=i: draw_side(c, i)) for i in range(8)]
-    rows.append(run_r)
-    rows.append([ImageOps.mirror(im) for im in run_r])
-    rows.append([render(lambda c, p=p: draw_front(c, p)) for p in row_waving()])
-    rows.append([render(lambda c, p=p: draw_front(c, p)) for p in row_jumping()])
-    rows.append([render(lambda c, p=p: draw_front(c, p)) for p in row_failed()])
-    rows.append([render(lambda c, p=p: draw_front(c, p)) for p in row_waiting()])
-    rows.append([render(lambda c, p=p: draw_front(c, p)) for p in row_working()])
-    rows.append([render(lambda c, p=p: draw_front(c, p)) for p in row_review()])
+    run_left = [front(p) for p in row_run_left()]
+    rows = [
+        [front(p) for p in row_idle()],
+        [ImageOps.mirror(im) for im in run_left],
+        run_left,
+        [front(p) for p in row_waving()],
+        [front(p) for p in row_jumping()],
+        [render(lambda c, k=k: draw_scream(c, k)) for k in range(8)],
+        [front(p) for p in row_waiting()],
+        [front(p) for p in row_working()],
+        [front(p) for p in row_review()],
+    ]
     for (name, count), frames in zip(ROW_SPEC, rows):
         assert len(frames) == count, (name, len(frames))
     return rows
@@ -1179,10 +1211,18 @@ def build_atlas(rows: List[List[Image.Image]]) -> Image.Image:
 
 
 def font(size: int) -> ImageFont.ImageFont:
-    for path in ("/usr/share/fonts/liberation-sans-fonts/LiberationSans-Regular.ttf",):
-        if os.path.exists(path):
-            return ImageFont.truetype(path, size)
-    return ImageFont.load_default()
+    path = "/usr/share/fonts/liberation-sans-fonts/LiberationSans-Regular.ttf"
+    return ImageFont.truetype(path, size) if os.path.exists(path) else ImageFont.load_default()
+
+
+def cell(atlas: Image.Image, r: int, c: int) -> Image.Image:
+    return atlas.crop((c * CELL_W, r * CELL_H, (c + 1) * CELL_W, (r + 1) * CELL_H))
+
+
+def on_bg(im: Image.Image, color=(128, 128, 128, 255)) -> Image.Image:
+    bg = Image.new("RGBA", im.size, color)
+    bg.alpha_composite(im)
+    return bg
 
 
 def contact_sheet(atlas: Image.Image, path: str) -> None:
@@ -1206,35 +1246,61 @@ def export_gifs(rows: List[List[Image.Image]]) -> None:
     durations = {"idle": 170, "running-right": 80, "running-left": 80, "waving": 150,
                  "jumping": 130, "failed": 70, "waiting": 150, "running": 90, "review": 170}
     for (name, _), frames in zip(ROW_SPEC, rows):
-        flat = []
-        for im in frames:
-            bg = Image.new("RGBA", im.size, (128, 128, 128, 255))
-            bg.alpha_composite(im)
-            flat.append(bg.convert("RGB"))
+        flat = [on_bg(im).convert("RGB") for im in frames]
         flat[0].save(os.path.join(OUT_DIR, f"row-{name}.gif"), save_all=True,
                      append_images=flat[1:], duration=durations[name], loop=0, disposal=2)
 
 
 def zoom(atlas: Image.Image, cells: Sequence[Tuple[int, int]], scale: int, path: str) -> None:
-    tiles = []
-    for r, c in cells:
-        crop = atlas.crop((c * CELL_W, r * CELL_H, (c + 1) * CELL_W, (r + 1) * CELL_H))
-        bg = Image.new("RGBA", crop.size, (128, 128, 128, 255))
-        bg.alpha_composite(crop)
-        tiles.append(bg.resize((CELL_W * scale, CELL_H * scale), Image.NEAREST))
+    tiles = [on_bg(cell(atlas, r, c)).resize((CELL_W * scale, CELL_H * scale), Image.LANCZOS)
+             for r, c in cells]
     out = Image.new("RGB", (CELL_W * scale * len(tiles), CELL_H * scale), (128, 128, 128))
     for k, t in enumerate(tiles):
         out.paste(t.convert("RGB"), (k * CELL_W * scale, 0))
     out.save(path)
 
 
+def vs_reference(atlas: Image.Image, ref_path: str, path: str) -> None:
+    if not os.path.exists(ref_path):
+        return
+    ref = Image.open(ref_path).convert("RGBA")
+    h = 416
+    ref = ref.resize((round(ref.width * h / ref.height), h), Image.LANCZOS)
+    ours = cell(atlas, 0, 0).resize((CELL_W * 2, CELL_H * 2), Image.LANCZOS)
+    out = Image.new("RGBA", (ref.width + ours.width + 30, h + 30), (255, 255, 255, 255))
+    out.alpha_composite(ref, (0, 30))
+    out.alpha_composite(ours, (ref.width + 30, 30))
+    d = ImageDraw.Draw(out)
+    d.text((6, 4), "reference", fill=(0, 0, 0, 255), font=font(18))
+    d.text((ref.width + 36, 4), "agallas-cartoon v2 idle[0] (2x)", fill=(0, 0, 0, 255), font=font(18))
+    out.convert("RGB").save(path)
+
+
+def before_after(atlas: Image.Image, old_path: str, path: str) -> None:
+    if not os.path.exists(old_path):
+        return
+    old = Image.open(old_path).convert("RGBA")
+    pairs = [("v1 idle", old, 0), ("v2 idle", atlas, 0), ("v1 failed", old, 5), ("v2 failed", atlas, 5)]
+    tw, th = CELL_W * 2, CELL_H * 2
+    out = Image.new("RGBA", (tw * 4, th + 28), (128, 128, 128, 255))
+    d = ImageDraw.Draw(out)
+    for i, (label, src, r) in enumerate(pairs):
+        t = on_bg(cell(src, r, 0)).resize((tw, th), Image.LANCZOS)
+        out.alpha_composite(t, (i * tw, 28))
+        d.text((i * tw + 8, 4), label, fill=(255, 255, 255, 255), font=font(18))
+    out.convert("RGB").save(path)
+
+
 def install(src_dir: str) -> None:
     targets = [os.path.expanduser(f"~/.codex/pets/{PET_ID}"), os.path.expanduser(f"~/.petdex/pets/{PET_ID}")]
+    backup = os.path.join(HERE, "backup-v1")
+    if not os.path.isfile(os.path.join(backup, "spritesheet.webp")):
+        sys.exit("refusing to overwrite: backup-v1 is missing")
     for t in targets:
-        if os.path.exists(t):
-            sys.exit(f"refusing to overwrite existing {t}")
-    for t in targets:
-        os.makedirs(t)
+        os.makedirs(t, exist_ok=True)
+        extra = set(os.listdir(t)) - {"pet.json", "spritesheet.webp"}
+        if extra:
+            sys.exit(f"refusing to touch unexpected files in {t}: {sorted(extra)}")
         for fn in ("pet.json", "spritesheet.webp"):
             shutil.copy2(os.path.join(src_dir, fn), os.path.join(t, fn))
         print("installed", t)
@@ -1252,7 +1318,10 @@ def main() -> None:
         json.dump(PET_JSON, fh, indent=2)
         fh.write("\n")
     contact_sheet(atlas, os.path.join(OUT_DIR, "preview.png"))
-    zoom(atlas, [(0, 0), (5, 0), (1, 2)], 3, os.path.join(OUT_DIR, "zoom.png"))
+    zoom(atlas, [(0, 0), (5, 0), (8, 0)], 3, os.path.join(OUT_DIR, "zoom.png"))
+    vs_reference(atlas, REF_IMAGE, os.path.join(OUT_DIR, "vs-reference.png"))
+    before_after(atlas, os.path.join(HERE, "backup-v1", "spritesheet.webp"),
+                 os.path.join(OUT_DIR, "before-after.png"))
     export_gifs(rows)
     print("wrote", pet_dir)
     if "--install" in sys.argv:
