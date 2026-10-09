@@ -656,6 +656,13 @@ def magnifier(look_dx: int) -> Callable:
     """Magnifying glass over the near eye, showing a huge scanning eye."""
     def fn(c: Canvas, ctx) -> None:
         lx, ly = ctx["Hd"](RIGHT_EYE[0], RIGHT_EYE[1] - 1)
+        # keep the reviewing eye entirely inside the lens: repaint whatever of it (white,
+        # outline, pupil) lies outside the ring as fur, leaving the other eye's outline intact
+        eye_r = ellipse(*ctx["Hd"](RIGHT_EYE[0], RIGHT_EYE[1]), RIGHT_EYE[2], RIGHT_EYE[3])
+        eye_l = ellipse(*ctx["Hd"](LEFT_EYE[0], LEFT_EYE[1]), LEFT_EYE[2], LEFT_EYE[3])
+        outside = dilate(eye_r) & ~dilate(eye_l) & ~ellipse(lx, ly, 7.2, 7.2) & (c.px[..., 3] > 0)
+        c.put(outside, PINK)
+        c.put(outside & ~look(outside, 0, -1), PINK_D)      # soft shadow under the ring
         hand = ctx["Hd"](50.5, 22.0)                       # grip just outside the cheek
         start, tail = (lx + 6.0, ly + 1.2), (hand[0] + 2.8, hand[1] + 1.0)
         handle = capsule(start, tail, 0.9)
@@ -1134,6 +1141,24 @@ def make_hands_before_after(before_path: str, atlas: Image.Image, path: str,
     out.convert("RGB").save(path)
 
 
+def make_eye_before_after(before_path: str, atlas: Image.Image, path: str) -> None:
+    """v4.1 vs v4.2 eye + lens crops of the 6 review frames at 4x NEAREST."""
+    before = Image.open(before_path).convert("RGBA")
+    lx0, ly0, lx1, ly1 = 24, 10, 46, 36
+    box = (lx0 * SCALE, ly0 * SCALE + PAD_TOP, lx1 * SCALE, ly1 * SCALE + PAD_TOP)
+    cw, ch = (box[2] - box[0]) * 4, (box[3] - box[1]) * 4
+    out = Image.new("RGBA", (6 * (cw + 8), 2 * (ch + 30)), (235, 235, 235, 255))
+    d = ImageDraw.Draw(out)
+    f = font(22)
+    for col in range(6):
+        for k, (name, sheet) in enumerate((("v4.1", before), ("v4.2", atlas))):
+            cell = sheet.crop((col * CELL_W + box[0], 8 * CELL_H + box[1], col * CELL_W + box[2], 8 * CELL_H + box[3]))
+            x, y = col * (cw + 8), k * (ch + 30)
+            d.text((x + 6, y + 2), f"{name} review c{col}", fill=(0, 0, 0, 255), font=f)
+            out.alpha_composite(cell.resize((cw, ch), Image.NEAREST), (x, y + 28))
+    out.convert("RGB").save(path)
+
+
 def make_dark_light(rows, path: str) -> None:
     picks = [(0, 0), (2, 1), (3, 1), (5, 0), (6, 0), (7, 0), (8, 0)]
     out = Image.new("RGBA", (CELL_W * len(picks), CELL_H * 2), (0, 0, 0, 255))
@@ -1226,10 +1251,9 @@ def main() -> int:
     if os.path.exists(REFERENCE):
         make_vs_reference(rows, REFERENCE, os.path.join(here, "vs-reference.png"))
     make_dark_light(rows, os.path.join(here, "dark-light-check.png"))
-    before = os.path.join(here, "backup-v4", "spritesheet.webp")
+    before = os.path.join(here, "backup-v4.1", "spritesheet.webp")
     if os.path.exists(before):
-        make_hands_before_after(before, atlas, os.path.join(here, "v41-before-after.png"),
-                                picks=[(8, 1), (8, 4), (1, 3), (2, 5)], labels=("v4", "v4.1"))
+        make_eye_before_after(before, atlas, os.path.join(here, "v42-before-after.png"))
     img_dir = os.path.dirname(REFERENCE)
     for ref_name, (r, c_), out_name, label in (("4.png", (5, 0), "vs-reference-scream.png", "failed[0]"),
                                                ("6.png", (7, 0), "vs-reference-computer.png", "running[0]")):
