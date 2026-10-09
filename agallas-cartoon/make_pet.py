@@ -75,11 +75,15 @@ NOSE = rgb(20, 14, 18)
 WHITE = (1.0, 1.0, 1.0)
 MOUTH = rgb(128, 22, 40)
 TONGUE = rgb(236, 112, 128)
-TEETH = rgb(246, 234, 172)
 GRIN = rgb(250, 248, 238)       # off-white clenched teeth
 RED = rgb(222, 40, 40)
-ORANGE = rgb(244, 156, 46)
-TONGUE_S = rgb(172, 82, 54)
+TONGUE_S = rgb(232, 102, 122)     # scream tongue (pink-red)
+TONGUE_LINE = rgb(194, 64, 90)
+UVULA_S = rgb(184, 57, 78)
+FXGREY = rgb(201, 201, 210)       # effect marks readable on light and dark
+RIM_RGB = (255, 247, 242)          # light outer rim behind the silhouette
+RIM_ALPHA = 0.92
+RIM_R = 1.75                       # rim width (final px)
 WOOD = rgb(176, 112, 64)
 SCREEN = rgb(36, 52, 74)
 CODE = rgb(120, 230, 160)
@@ -286,7 +290,7 @@ def fx_shake(x: float, y: float, side: int, n: int = 3, size: float = 1.0) -> Ca
             ctx.new_path()
             a0 = math.radians(-35 if side > 0 else 145)
             ctx.arc(x - side * 6, y, r, a0, a0 + math.radians(70))
-            ctx.set_source_rgb(*OUT)
+            ctx.set_source_rgb(*FXGREY)
             ctx.set_line_width(1.8)
             ctx.stroke()
     return fn
@@ -346,7 +350,7 @@ def fx_dust(x: float, y: float, s: float = 1.0) -> Callable:
 
 def fx_speed(lines: Sequence[Tuple[float, float, float]]) -> Callable:
     def fn(ctx: cairo.Context) -> None:
-        ctx.set_source_rgb(*OUT)
+        ctx.set_source_rgb(*FXGREY)
         ctx.set_line_width(1.8)
         for x, y, ln in lines:
             ctx.new_path()
@@ -358,7 +362,7 @@ def fx_speed(lines: Sequence[Tuple[float, float, float]]) -> Callable:
 
 def fx_arcs(x: float, y: float, start: float, sweep: float, radii=(5.0, 9.0)) -> Callable:
     def fn(ctx: cairo.Context) -> None:
-        ctx.set_source_rgb(*OUT)
+        ctx.set_source_rgb(*FXGREY)
         ctx.set_line_width(1.7)
         for r in radii:
             ctx.new_path()
@@ -403,7 +407,7 @@ def fx_glyph(x: float, y: float, text: str, color, size: float = 10.0) -> Callab
 
 def fx_taps(x: float, y: float) -> Callable:
     def fn(ctx: cairo.Context) -> None:
-        ctx.set_source_rgb(*OUT)
+        ctx.set_source_rgb(*FXGREY)
         ctx.set_line_width(1.5)
         for ang in (-150, -90, -30):
             a = math.radians(ang)
@@ -735,10 +739,18 @@ def draw_mouth(ctx: cairo.Context, p: Pose) -> None:
         ctx.set_source_rgb(*TONGUE)
         ell(600, 600 + 30 * (1 - a), 70, 45, -30)(ctx)
         ctx.fill()
+        band = offset_curve(jd, 2)
         ctx.new_path()
-        ribbon(offset_curve(jd, 2), lambda t: 30)(ctx)
-        ctx.set_source_rgb(*TEETH)
+        ribbon(band, lambda t: 30)(ctx)
+        ctx.set_source_rgb(*GRIN)
         ctx.fill()
+        tl = THIN * 1.25
+        line(ctx, spline(offset_curve(jd, 17), closed=False), tl)
+        top, bot = offset_curve(jd, -16), offset_curve(jd, 17)
+        n = len(jd)
+        for f in (0.3, 0.52, 0.74):
+            i = int(round(f * (n - 1)))
+            line(ctx, lambda c, a=top[i], b=bot[i]: (c.move_to(*a), c.line_to(*b)), tl)
         ctx.restore()
         line(ctx, hole, LWM)
     elif kind == "o":
@@ -852,7 +864,7 @@ def draw_character(ctx: cairo.Context, p: Pose) -> None:
 SCREAM_S = 0.132
 
 
-def draw_scream(ctx: cairo.Context, k: int) -> None:
+def draw_scream(ctx: cairo.Context, k: int, with_fx: bool = True) -> None:
     rng = np.random.default_rng(1000 + k)
     jit = [-2.4, 2.4, -1.8, 2.8, -2.8, 1.8, -2.2, 2.2][k]
     ctx.save()
@@ -870,11 +882,11 @@ def draw_scream(ctx: cairo.Context, k: int) -> None:
         dx, dy = b[0] - a0[0], b[1] - a0[1]
         ln = math.hypot(dx, dy)
         nx, ny = -dy / ln, dx / ln
-        for s_ in (-1, 1):
+        for s_ in ((-1, 1) if with_fx else ()):
             m0 = lerp(a0, b, 0.55)
             line(ctx, lambda c, m0=m0, s_=s_: (c.move_to(m0[0] + nx * 26 * s_, m0[1] + ny * 26 * s_),
                                               c.line_to(m0[0] + nx * 26 * s_ + dx * 0.25, m0[1] + ny * 26 * s_ + dy * 0.25)),
-                 THIN)
+                 THIN * 1.6, FXGREY)
     # ears stiff and straight up
     flutter = 3 * math.sin(k * 1.7)
     draw_ear(ctx, (40, -330), (-4, 70, -2 + flutter, 250, 66), (0, 0))
@@ -917,24 +929,27 @@ def draw_scream(ctx: cairo.Context, k: int) -> None:
     ctx.new_path()
     mouth(ctx)
     ctx.clip()
-    # throat "U"
-    line(ctx, lambda c: (c.move_to(150, 20), c.curve_to(150, 110, 230, 110, 230, 20)), 26, ORANGE)
+    # uvula: dark pink teardrop hanging at the back of the mouth
+    fill_outline(ctx, lambda c: (c.move_to(176, -80), c.line_to(214, -84),
+                                 c.curve_to(214, -30, 232, 0, 226, 26),
+                                 c.curve_to(220, 52, 176, 52, 170, 26),
+                                 c.curve_to(166, 0, 178, -30, 176, -80), c.close_path()), UVULA_S, LWM * 0.6)
     # lower teeth
     for (x, y) in ((-170, 250 * a), (-60, 300 * a), (60, 300 * a), (170, 230 * a)):
         fill_outline(ctx, lambda c, x=x, y=y: (c.move_to(x - 40, y + 60), c.curve_to(x - 38, y - 30, x + 38, y - 30, x + 40, y + 60),
-                                                c.close_path()), TEETH, LWM)
+                                                c.close_path()), GRIN, LWM)
     ctx.restore()
     # flapping tongue out to the left
     ph = k * 1.4
     tpts = [(120 - 760 * t, 160 + 50 * t + 55 * t * math.sin(2 * math.pi * t * 1.3 + ph)) for t in np.linspace(0, 1, 30)]
     blob(ctx, [Shape(ribbon(tpts, lambda t: 70 - 20 * t))], TONGUE_S, ow=12, weight=False)
-    line(ctx, spline(offset_curve(tpts, 0), closed=False), 8, ORANGE)
+    line(ctx, spline(tpts[2:-3], closed=False), 9, TONGUE_LINE)
     # upper fangs hanging from under the nose
     for (x, y, h) in ((-200, 14, 120), (60, -22, 110)):
         fill_outline(ctx, lambda c, x=x, y=y, h=h: (c.move_to(x - 42, y), c.line_to(x + 42, y - 8),
                                                      c.curve_to(x + 38, y + h * 0.6, x + 10, y + h, x - 6, y + h),
                                                      c.curve_to(x - 30, y + h * 0.8, x - 40, y + h * 0.4, x - 42, y),
-                                                     c.close_path()), TEETH, LWM)
+                                                     c.close_path()), GRIN, LWM)
     line(ctx, mouth, LWM * 1.2)
     # nose wedge + snout tip dot + freckles
     nose = spline([(-430, -100), (-300, -110), (-190, -80), (-120, -30), (-200, 20), (-300, 30), (-390, -20)])
@@ -956,6 +971,8 @@ def draw_scream(ctx: cairo.Context, k: int) -> None:
         ex = 6 * math.sin(k * 2.3)
         draw_eye(ctx, cx, cy, rx, ry, rot, (px + ex, py), 0.55, (0.0, 0.0), 1, False)
     ctx.restore()
+    if not with_fx:
+        return
     # shake marks and flying sweat in cell space
     fx_shake(CX - 74, 120, -1)(ctx)
     fx_shake(CX + 74, 120, 1)(ctx)
@@ -1182,7 +1199,7 @@ def row_review() -> List[Pose]:
 # ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
-def render(draw: Callable[[cairo.Context], None]) -> Image.Image:
+def paint(draw: Callable[[cairo.Context], None]) -> Image.Image:
     surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, CELL_W * SS, CELL_H * SS)
     ctx = cairo.Context(surf)
     ctx.scale(SS, SS)
@@ -1192,8 +1209,38 @@ def render(draw: Callable[[cairo.Context], None]) -> Image.Image:
     draw(ctx)
     surf.flush()
     # cairo ARGB32 = premultiplied BGRA (little endian); "BGRa" unpremultiplies.
-    big = Image.frombuffer("RGBA", (CELL_W * SS, CELL_H * SS), bytes(surf.get_data()),
-                           "raw", "BGRa", surf.get_stride(), 1)
+    return Image.frombuffer("RGBA", (CELL_W * SS, CELL_H * SS), bytes(surf.get_data()),
+                            "raw", "BGRa", surf.get_stride(), 1).copy()
+
+
+def dilate(alpha: np.ndarray, r: float) -> np.ndarray:
+    """Grey-scale dilation of an alpha mask with a disc of radius r (pixels)."""
+    ri = int(math.ceil(r))
+    h, w = alpha.shape
+    pad = np.pad(alpha, ri)
+    out = np.zeros_like(alpha)
+    for dy in range(-ri, ri + 1):
+        for dx in range(-ri, ri + 1):
+            d = math.hypot(dx, dy)
+            if d > r + 0.5:
+                continue
+            k = min(1.0, r + 0.5 - d)  # soft rim edge
+            out = np.maximum(out, pad[ri + dy:ri + dy + h, ri + dx:ri + dx + w] * k)
+    return out
+
+
+def render(draw: Callable[[cairo.Context], None],
+           rim_draw: Optional[Callable[[cairo.Context], None]] = None) -> Image.Image:
+    big = paint(draw)
+    if rim_draw is not None:
+        sil = np.asarray(paint(rim_draw))[:, :, 3].astype(np.float32) / 255.0
+        rim_a = dilate(sil, RIM_R * SS)
+        rim = np.zeros(sil.shape + (4,), np.uint8)
+        rim[:, :, :3] = RIM_RGB
+        rim[:, :, 3] = np.round(rim_a * RIM_ALPHA * 255).astype(np.uint8)
+        layer = Image.fromarray(rim)
+        layer.alpha_composite(big)
+        big = layer
     small = big.resize((CELL_W, CELL_H), Image.LANCZOS)  # Pillow resamples RGBA premultiplied
     arr = np.array(small)
     arr[arr[:, :, 3] == 0] = 0
@@ -1201,7 +1248,7 @@ def render(draw: Callable[[cairo.Context], None]) -> Image.Image:
 
 
 def front(p: Pose) -> Image.Image:
-    return render(lambda c: draw_character(c, p))
+    return render(lambda c: draw_character(c, p), lambda c: draw_character(c, replace(p, fx=[])))
 
 
 def build_frames() -> List[List[Image.Image]]:
@@ -1212,7 +1259,7 @@ def build_frames() -> List[List[Image.Image]]:
         run_left,
         [front(p) for p in row_waving()],
         [front(p) for p in row_jumping()],
-        [render(lambda c, k=k: draw_scream(c, k)) for k in range(8)],
+        [render(lambda c, k=k: draw_scream(c, k), lambda c, k=k: draw_scream(c, k, False)) for k in range(8)],
         [front(p) for p in row_waiting()],
         [front(p) for p in row_working()],
         [front(p) for p in row_review()],
@@ -1311,6 +1358,20 @@ def before_after(atlas: Image.Image, old_path: str, path: str) -> None:
     out.convert("RGB").save(path)
 
 
+def dark_light_check(atlas: Image.Image, path: str) -> None:
+    picks = [(0, 0, "idle c0"), (1, 3, "running-right c3"), (5, 3, "failed c3"), (3, 1, "waving c1")]
+    tw, th = CELL_W * 2, CELL_H * 2
+    out = Image.new("RGBA", (tw * len(picks), (th + 26) * 2), (90, 90, 90, 255))
+    d = ImageDraw.Draw(out)
+    for j, bg in enumerate(((245, 245, 245, 255), (30, 32, 44, 255))):
+        for i, (r, c, label) in enumerate(picks):
+            t = on_bg(cell(atlas, r, c), bg).resize((tw, th), Image.LANCZOS)
+            out.alpha_composite(t, (i * tw, j * (th + 26) + 26))
+            d.text((i * tw + 6, j * (th + 26) + 4), f"{label} on #{bg[0]:02X}{bg[1]:02X}{bg[2]:02X}",
+                   fill=(255, 255, 255, 255), font=font(16))
+    out.convert("RGB").save(path)
+
+
 def install(src_dir: str) -> None:
     targets = [os.path.expanduser(f"~/.codex/pets/{PET_ID}"), os.path.expanduser(f"~/.petdex/pets/{PET_ID}")]
     backup = os.path.join(HERE, "backup-v1")
@@ -1342,6 +1403,7 @@ def main() -> None:
     vs_reference(atlas, REF_IMAGE, os.path.join(OUT_DIR, "vs-reference.png"))
     before_after(atlas, os.path.join(HERE, "backup-v1", "spritesheet.webp"),
                  os.path.join(OUT_DIR, "before-after.png"))
+    dark_light_check(atlas, os.path.join(OUT_DIR, "dark-light-check.png"))
     export_gifs(rows)
     print("wrote", pet_dir)
     if "--install" in sys.argv:
