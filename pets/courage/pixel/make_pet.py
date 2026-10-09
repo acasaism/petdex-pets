@@ -656,9 +656,11 @@ def magnifier(look_dx: int) -> Callable:
     """Magnifying glass over the near eye, showing a huge scanning eye."""
     def fn(c: Canvas, ctx) -> None:
         lx, ly = ctx["Hd"](RIGHT_EYE[0], RIGHT_EYE[1] - 1)
-        hand = ctx["hands"][1]
-        tail = (hand[0] + 1.4, hand[1] + 3.0)
-        c.part(capsule((lx + 3.4, ly + 4.2), tail, 0.9), BRASS, shade=BRASS_D, depth=1, inner=BRASS_D)
+        hand = ctx["Hd"](50.5, 22.0)                       # grip just outside the cheek
+        start, tail = (lx + 6.0, ly + 1.2), (hand[0] + 2.8, hand[1] + 1.0)
+        handle = capsule(start, tail, 0.9)
+        c.put(wire2([ctx["Bd"](46.0, 35.0), (hand[0] + 0.5, hand[1] + 2.5)]), LINE_PINK_D)  # short arm
+        c.part(handle, BRASS, shade=BRASS_D, depth=1, inner=BRASS_D)
         c.part(ellipse(lx, ly, 6.2, 6.2), GOLD, shade=GOLD_D, depth=1)
         c.put(ellipse(lx, ly, 5.0, 5.0), GLASS)
         eye = ellipse(lx, ly, 4.0, 4.4)
@@ -668,8 +670,11 @@ def magnifier(look_dx: int) -> Callable:
         c.put(rect(px0, py0, px0 + 2, py0 + 2) & eye, BLACK)
         c.dot(lx - 3, ly - 4, WHITE)
         c.dot(lx - 4, ly - 3, WHITE)
-        draw_hand(c, "open", *hand)                         # fist wrapped round the handle
-        c.put(capsule(tail, tail, 0.9) & ~hand_mask("open", *hand), BRASS_D)
+        # fingers over the handle: the hand is drawn on top, the handle shows in the notches
+        hm = hand_mask("open", *hand)
+        draw_hand(c, "open", *hand)
+        ring = dilate(hm) & ~hm
+        c.put(handle & ring, BRASS)
     return fn
 
 
@@ -711,7 +716,11 @@ def row_run_left():
         for sh, sgn in (((33, 42), 1), ((37, 42), -1)):
             hx = 35 + 3.8 * swing * sgn
             hy = 44.5 - 0.25 * abs(swing)
-            arms.append(([sh, (hx, hy)], "open", hx >= 35))   # forward arm in front, back arm behind
+            if hx >= 35:                                       # back arm: behind the body
+                arms.append(([sh, (hx, hy)], "open", True))
+            else:                                              # forward arm: from the front edge, short
+                fx, fy = 26.0 - 2.2 * abs(swing), 45.0 + 0.25 * abs(swing)
+                arms.append(([(28.0, 42.5), (fx, fy)], "open", False))
         arms = tuple(arms)
         flap = [0, 6, 10, 6, 0, -6, -10, -6][i]
         extras = [speed_lines(i)]
@@ -981,7 +990,7 @@ def row_review():
         frames.append(Pose(
             hdx=scan[i], eyes=("squint", "open"), pupil=(scan[i], 0),
             ears=(ear(EAR_L, d_flap=6), EAR_R),
-            arms=(HANG_ARMS[0], ([(45.5, 38.5), (40, 32.5)], "none", False)),
+            arms=(HANG_ARMS[0],),
             extras=[magnifier(scan[i] * 2)]))
     return [draw_character(p) for p in frames]
 
@@ -1101,19 +1110,22 @@ def make_before_after(before_path: str, atlas: Image.Image, path: str) -> None:
 HAND_PICKS = [(0, 0), (1, 3), (3, 1), (4, 1), (6, 1), (7, 1), (8, 1), (5, 0)]
 
 
-def make_hands_before_after(before_path: str, atlas: Image.Image, path: str) -> None:
+def make_hands_before_after(before_path: str, atlas: Image.Image, path: str,
+                            picks=None, labels=("v3", "v4")) -> None:
     """v3 vs v4 torso/hand crops at 3x NEAREST, two versions stacked per cell."""
     before = Image.open(before_path).convert("RGBA")
     lx0, ly0, lx1, ly1 = 4, 18, 60, 66                      # logical crop
     box = (lx0 * SCALE, ly0 * SCALE + PAD_TOP, lx1 * SCALE, ly1 * SCALE + PAD_TOP)
     cw, ch = (box[2] - box[0]) * 3, (box[3] - box[1]) * 3
+    picks = picks or HAND_PICKS
     cols = 4
-    out = Image.new("RGBA", (cols * (cw + 8), 4 * (ch + 30)), (235, 235, 235, 255))
+    out = Image.new("RGBA", (cols * (cw + 8), 2 * ((len(picks) + cols - 1) // cols) * (ch + 30)),
+                    (235, 235, 235, 255))
     d = ImageDraw.Draw(out)
     f = font(22)
-    for i, (r, c_) in enumerate(HAND_PICKS):
+    for i, (r, c_) in enumerate(picks):
         gx_, gy_ = (i % cols) * (cw + 8), (i // cols) * 2 * (ch + 30)
-        for k, (name, sheet) in enumerate((("v3", before), ("v4", atlas))):
+        for k, (name, sheet) in enumerate(((labels[0], before), (labels[1], atlas))):
             cell = sheet.crop((c_ * CELL_W + box[0], r * CELL_H + box[1], c_ * CELL_W + box[2], r * CELL_H + box[3]))
             cell = cell.resize((cw, ch), Image.NEAREST)
             y = gy_ + k * (ch + 30)
@@ -1214,9 +1226,10 @@ def main() -> int:
     if os.path.exists(REFERENCE):
         make_vs_reference(rows, REFERENCE, os.path.join(here, "vs-reference.png"))
     make_dark_light(rows, os.path.join(here, "dark-light-check.png"))
-    before = os.path.join(here, "backup-v3", "spritesheet.webp")
+    before = os.path.join(here, "backup-v4", "spritesheet.webp")
     if os.path.exists(before):
-        make_hands_before_after(before, atlas, os.path.join(here, "hands-before-after.png"))
+        make_hands_before_after(before, atlas, os.path.join(here, "v41-before-after.png"),
+                                picks=[(8, 1), (8, 4), (1, 3), (2, 5)], labels=("v4", "v4.1"))
     img_dir = os.path.dirname(REFERENCE)
     for ref_name, (r, c_), out_name, label in (("4.png", (5, 0), "vs-reference-scream.png", "failed[0]"),
                                                ("6.png", (7, 0), "vs-reference-computer.png", "running[0]")):
