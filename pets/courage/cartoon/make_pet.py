@@ -58,7 +58,8 @@ ROW_SPEC = [
 
 CX = 96.0       # character centre line
 GROUND = 200.0  # model ground line (bottom of the feet)
-REF_IMAGE = "/tmp/claude-695000033/-home-anton-casais/03a0a754-38c7-4292-926f-6a2ac4514355/images/3.png"
+# Reference art is not committed; point PET_REFS_DIR at it (default: ./refs).
+REF_IMAGE = os.path.join(os.environ.get("PET_REFS_DIR", os.path.join(HERE, "refs")), "3.png")
 
 
 # ---------------------------------------------------------------------------
@@ -1590,15 +1591,21 @@ def main() -> None:
         fh.write("\n")
     contact_sheet(atlas, os.path.join(OUT_DIR, "preview.png"))
     zoom(atlas, [(0, 0), (5, 0), (8, 0)], 3, os.path.join(OUT_DIR, "zoom.png"))
-    vs_reference(atlas, REF_IMAGE, os.path.join(OUT_DIR, "vs-reference.png"))
-    before_after(atlas, os.path.join(HERE, "backup-v1", "spritesheet.webp"),
-                 os.path.join(OUT_DIR, "before-after.png"))
+    if os.path.exists(REF_IMAGE):
+        vs_reference(atlas, REF_IMAGE, os.path.join(OUT_DIR, "vs-reference.png"))
+    before = os.path.join(HERE, "backup-v1", "spritesheet.webp")
+    if os.path.exists(before):
+        before_after(atlas, before, os.path.join(OUT_DIR, "before-after.png"))
     dark_light_check(atlas, os.path.join(OUT_DIR, "dark-light-check.png"))
     imgs = os.path.dirname(REF_IMAGE)
-    vs_reference_cells(atlas, [os.path.join(imgs, "4.png")], [(5, 0), (5, 4)], (5, 0),
-                       os.path.join(OUT_DIR, "vs-reference-scream.png"))
-    vs_reference_cells(atlas, [os.path.join(imgs, "6.png"), os.path.join(imgs, "8.png")], [(7, 0), (7, 3)], (7, 0),
-                       os.path.join(OUT_DIR, "vs-reference-computer.png"))
+    scream_refs = [os.path.join(imgs, "4.png")]
+    if all(os.path.exists(p) for p in scream_refs):
+        vs_reference_cells(atlas, scream_refs, [(5, 0), (5, 4)], (5, 0),
+                           os.path.join(OUT_DIR, "vs-reference-scream.png"))
+    computer_refs = [os.path.join(imgs, "6.png"), os.path.join(imgs, "8.png")]
+    if all(os.path.exists(p) for p in computer_refs):
+        vs_reference_cells(atlas, computer_refs, [(7, 0), (7, 3)], (7, 0),
+                           os.path.join(OUT_DIR, "vs-reference-computer.png"))
     export_gifs(rows)
     print("wrote", pet_dir)
     if "--install" in sys.argv:

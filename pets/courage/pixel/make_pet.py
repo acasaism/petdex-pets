@@ -1108,7 +1108,8 @@ PET_JSON = {
 GIF_MS = {"idle": 220, "running-right": 90, "running-left": 90, "waving": 160,
           "jumping": 140, "failed": 80, "waiting": 160, "running": 110, "review": 200}
 
-REFERENCE = "/tmp/claude-695000033/-home-anton-casais/03a0a754-38c7-4292-926f-6a2ac4514355/images/3.png"
+# Reference art is not committed; point PET_REFS_DIR at it (default: ./refs).
+REFERENCE = os.path.join(os.environ.get("PET_REFS_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "refs")), "3.png")
 
 
 def main() -> int:

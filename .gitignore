@@ -1,0 +1,12 @@
+# Generator outputs and QA images (regenerated on each run)
+pets/**/build/
+pets/**/out/
+pets/**/refs/
+pets/**/backup-*/
+pets/**/*.gif
+pets/**/preview.png
+pets/**/*-check.png
+pets/**/vs-reference*.png
+pets/**/*before-after.png
+pets/**/zoom*.png
+__pycache__/

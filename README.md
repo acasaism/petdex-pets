@@ -1,25 +1,61 @@
-# agallas-pets
+# petdex-pets
 
-Fan-made Codex/Petdex desktop pets of Agallas (Courage the Cowardly Dog), for personal use.
-Courage is a Cartoon Network character; this repo claims no rights to the character.
+Animated desktop pets in the Codex pet format, usable in Orca, Codex and Petdex Desktop.
+Drawn procedurally with Python (Pillow / pycairo) together with Claude Code.
 
-| Folder | Style |
-|---|---|
-| `agallas/` | Pixel art |
-| `agallas-cartoon/` | Cartoon (cairo vector) |
+## Catalog
 
-Each folder holds `pet.json` + `spritesheet.webp` (1536x1872, 8x9 cells of 192x208) and the
-`make_pet.py` generator when available. Versions are git tags (`pixel-vN`, `cartoon-vN`).
+| Pet | Folder | Petdex slug | Status |
+|---|---|---|---|
+| Courage the Cowardly Dog | `pets/courage/cartoon/` | `courage-the-cowardly-dog` | Submitted 2026-10-09, held for review |
+| Courage the Cowardly Dog (Pixel) | `pets/courage/pixel/` | `courage-the-cowardly-dog-pixel` | Submitted 2026-10-09 (v2), held for review; v3 not uploaded yet |
 
-Install: copy a folder to `~/.codex/pets/<id>/` (Orca: Import .codex-pet bundle) and `~/.petdex/pets/<id>/`.
+Track submissions at https://petdex.dev/u/acasaism.
 
-## Published on Petdex
+## Layout
 
-Submitted 2026-10-09 by `acasaism` with license `cc-by-nc` (held for review). Track at https://petdex.dev/u/acasaism.
+```
+pets/<character>/<variant>/
+├── pet.json          # published metadata (id = Petdex slug)
+├── spritesheet.webp  # 1536x1872 lossless RGBA WebP, 8 columns x 9 rows of 192x208 cells
+└── make_pet.py       # generator
+```
 
-| Slug | Source |
-|---|---|
-| `courage-the-cowardly-dog` | `submission/courage-the-cowardly-dog/` (cartoon) |
-| `courage-the-cowardly-dog-pixel` | `submission/courage-the-cowardly-dog-pixel/` (pixel) |
+Rows, in order: idle (6), running-right (8), running-left (8), waving (4), jumping (5),
+failed (8), waiting (6), running (6, the "working" state), review (6).
 
-Update a published pet: `npx petdex edit <slug> --sprite <path>/spritesheet.webp` (also `--desc`, `--displayName`).
+## Use a pet locally
+
+Copy a variant folder to `~/.codex/pets/<id>/` (and `~/.petdex/pets/<id>/` for Petdex Desktop),
+where `<id>` is the `id` in its `pet.json`. In Orca: Choose pet → Import .codex-pet bundle → pick the folder.
+
+## Regenerate
+
+```sh
+python3 -I pets/courage/pixel/make_pet.py     # writes pets/courage/pixel/build/
+python3 -I pets/courage/cartoon/make_pet.py   # writes pets/courage/cartoon/out/
+```
+
+Generators write a local build (with their original local ids `agallas` / `agallas-cartoon`) plus QA images,
+all git-ignored. Copy the new `spritesheet.webp` over the committed one to update a pet.
+Reference art is not committed; set `PET_REFS_DIR` to a folder with it to get the comparison images.
+
+## Publish and update on Petdex
+
+```sh
+npx petdex login
+npx petdex submit pets/<character>/<variant> --license cc-by-nc   # one folder per call
+npx petdex edit <slug> --sprite pets/<character>/<variant>/spritesheet.webp
+```
+
+Submitting a parent folder with several pets asks for an interactive confirmation.
+
+## Versions
+
+Tags are `<character>-<variant>-vN`, e.g. `courage-cartoon-v4`, `courage-pixel-v3`.
+Tags created before the move to `pets/` use the old layout (`agallas/`, `agallas-cartoon/`, `submission/`).
+
+## Rights
+
+Fan art. Courage the Cowardly Dog is a Cartoon Network character; no rights to the character are claimed.
+The artwork is published on Petdex under CC BY-NC.
