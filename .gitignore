@@ -10,3 +10,8 @@ pets/**/vs-reference*.png
 pets/**/*before-after.png
 pets/**/zoom*.png
 __pycache__/
+
+# Committed previews rendered by tools/make_previews.py from the committed spritesheet
+!pets/*/*/preview/
+!pets/*/*/preview/*.gif
+!pets/*/*/preview/sheet.png

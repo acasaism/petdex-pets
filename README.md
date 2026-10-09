@@ -12,12 +12,22 @@ Drawn procedurally with Python (Pillow / pycairo) together with Claude Code.
 
 Track submissions at https://petdex.dev/u/acasaism.
 
+## Preview
+
+| | idle | failed | running (work) | review |
+|---|---|---|---|---|
+| Cartoon | ![](pets/courage/cartoon/preview/idle.gif) | ![](pets/courage/cartoon/preview/failed.gif) | ![](pets/courage/cartoon/preview/running.gif) | ![](pets/courage/cartoon/preview/review.gif) |
+| Pixel | ![](pets/courage/pixel/preview/idle.gif) | ![](pets/courage/pixel/preview/failed.gif) | ![](pets/courage/pixel/preview/running.gif) | ![](pets/courage/pixel/preview/review.gif) |
+
+Every state is in `pets/<character>/<variant>/preview/` (one GIF per state plus `sheet.png`).
+
 ## Layout
 
 ```
 pets/<character>/<variant>/
 ├── pet.json          # published metadata (id = Petdex slug)
 ├── spritesheet.webp  # 1536x1872 lossless RGBA WebP, 8 columns x 9 rows of 192x208 cells
+├── preview/         # GIF per state + sheet.png, rendered by tools/make_previews.py
 └── make_pet.py       # generator
 ```
 
@@ -39,6 +49,12 @@ python3 -I pets/courage/cartoon/make_pet.py   # writes pets/courage/cartoon/out/
 Generators write a local build (with their original local ids `agallas` / `agallas-cartoon`) plus QA images,
 all git-ignored. Copy the new `spritesheet.webp` over the committed one to update a pet.
 Reference art is not committed; set `PET_REFS_DIR` to a folder with it to get the comparison images.
+
+After committing a new spritesheet, refresh its previews:
+
+```sh
+python3 -I tools/make_previews.py pets/<character>/<variant>
+```
 
 ## Publish and update on Petdex
 
