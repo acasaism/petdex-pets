@@ -8,7 +8,7 @@ Drawn procedurally with Python (Pillow / pycairo) together with Claude Code.
 | Pet | Folder | Petdex slug | Status |
 |---|---|---|---|
 | Courage the Cowardly Dog | `pets/courage/cartoon/` | `courage-the-cowardly-dog` | Submitted 2026-10-09, held for review |
-| Courage the Cowardly Dog (Pixel) | `pets/courage/pixel/` | `courage-the-cowardly-dog-pixel` | Submitted 2026-10-09 (v2), held for review; v3 not uploaded yet |
+| Courage the Cowardly Dog (Pixel) | `pets/courage/pixel/` | `courage-the-cowardly-dog-pixel` | v2 withdrawn; v3 resubmitted 2026-10-09, held for review |
 
 Track submissions at https://petdex.dev/u/acasaism.
 
@@ -51,7 +51,7 @@ npx petdex edit <slug> --sprite pets/<character>/<variant>/spritesheet.webp
 Submitting a parent folder with several pets asks for an interactive confirmation.
 
 `petdex edit` only works once a pet is approved; a pending one returns `pet_not_editable`.
-Pending follow-up: once `courage-the-cowardly-dog-pixel` is approved, upload v3 with the `edit` command above.
+A pending submission can be withdrawn from the web profile ("Retirar envío") and resubmitted.
 
 ## Versions
 
