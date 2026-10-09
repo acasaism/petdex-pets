@@ -248,8 +248,8 @@ BEAN = [(29, 13.6), (33, 13.2), (37, 13.8), (40, 15.5), (42, 18), (42.6, 21), (4
 NOSE = [(10.6, 29.3), (15.5, 29.0), (20.5, 29.6), (27.6, 32.4), (21.6, 37.2), (16.4, 38.9),
         (13.4, 37.2), (11.0, 33.4)]
 MOUTH_LINE = [(43.8, 22.0), (43.2, 23.6), (41.8, 24.8), (40.2, 25.6), (39.0, 25.8)]
-OPEN_MOUTH = [(32.8, 33.2), (35.6, 31.6), (38.4, 29.4), (40.8, 26.6), (42.6, 23.8),
-              (43.8, 26.0), (43.4, 30.0), (41.6, 33.6), (38.8, 36.2), (35.4, 37.4), (32.8, 36.4)]
+OPEN_MOUTH = [(27.6, 36.0), (31.0, 36.4), (34.6, 35.6), (38.0, 33.6), (40.8, 30.6), (42.6, 27.0),
+              (43.6, 28.8), (42.2, 33.2), (39.2, 36.8), (35.2, 38.8), (31.2, 39.2), (28.2, 38.4)]
 STAR = ["..#..",
         "#####",
         ".###.",
@@ -265,6 +265,52 @@ HIPS = ((29.5, 56.5), (40.5, 56.5))
 FEET = ((29.0, ANKLE_Y), (41.0, ANKLE_Y))
 
 
+# Cross-shaped hands (pink fill, black outline), as on the model sheet.
+HANDS = {
+    "hang": (["..##..",            # wrist on top, lobes left/right/down
+              "######",
+              "######",
+              "..##..",
+              "..##.."], (2.0, 0.0)),
+    "open": (["..##..",            # open four-lobe cross
+              "######",
+              "######",
+              "..##.."], (2.5, 1.5)),
+    "flower": (["..##..",          # rounded four-petal hand with a dark centre (scream)
+                "..##..",
+                "######",
+                "######",
+                "..##..",
+                "..##.."], (2.5, 2.5)),
+}
+PLUM = (104, 46, 70)
+
+
+def hand_mask(kind: str, x: float, y: float) -> np.ndarray:
+    rows, (ax, ay) = HANDS[kind]
+    x0, y0 = int(math.floor(x - ax + 0.5)), int(math.floor(y - ay + 0.5))
+    m = np.zeros((H, W), bool)
+    for j, row in enumerate(rows):
+        for i, ch in enumerate(row):
+            if ch == "#" and 0 <= y0 + j < H and 0 <= x0 + i < W:
+                m[y0 + j, x0 + i] = True
+    return m
+
+
+def draw_hand(c: "Canvas", kind: str, x: float, y: float) -> None:
+    m = hand_mask(kind, x, y)
+    c.part(m, PINK, inner=OUT)
+    ys, xs = np.where(m)
+    c.dot(xs.max(), ys.max() - (1 if kind == "hang" else 0), PINK_D)
+    if kind == "flower":
+        cx, cy = int(math.floor(x + 0.5)), int(math.floor(y + 0.5))
+        c.put(rect(cx - 1, cy - 1, cx, cy) & m, PLUM)
+
+
+# Arm specs: (points in body coords from shoulder to hand, hand kind, drawn behind the body)
+HANG_ARMS = (([(31, 41.5), (31, 47)], "hang", False), ([(38, 42), (38, 48)], "hang", False))
+
+
 @dataclass
 class Pose:
     gx: int = 0                  # whole character offset
@@ -278,9 +324,7 @@ class Pose:
     brows: int = 0               # extra lift of the brows in px
     mouth: str = "smile"         # smile | grit | open | o | scream | none
     uvula: int = 0
-    arms: tuple = (((32, 48.5), None), ((36, 49.5), None))   # (hand, elbow) body coords
-    arms_behind: bool = False
-    shoulders: Optional[tuple] = None   # override shoulder points (body coords)
+    arms: tuple = HANG_ARMS      # see HANG_ARMS
     legs: Optional[tuple] = None  # ((ankle, ...), ...) absolute; None = standing
     legs_air: bool = False
     tail_dy: int = 0
@@ -369,17 +413,18 @@ def draw_character(p: Pose) -> np.ndarray:
         pts = [hip, ankle] if knee is None else [hip, knee, ankle]
         c.part(wire(pts) | foot(*ankle), PINK)
 
-    def draw_arm(k: int) -> None:
-        hand, elbow = p.arms[k]
-        sh = Bd(*(p.shoulders or SHOULDERS)[k])
-        hd = Bd(*hand)
-        pts = [sh, hd] if elbow is None else [sh, Bd(*elbow), hd]
-        c.part(wire2(pts) | ellipse(hd[0], hd[1], 1.6, 1.35), PINK, shade=PINK_D, depth=1, inner=LINE_PINK)
-        ctx["hands"].append(hd)
+    ctx["hands"] = [Bd(*spec[0][-1]) for spec in p.arms]
 
-    if p.arms_behind:
-        for k in range(2):
-            draw_arm(k)
+    def draw_arm(spec) -> None:
+        pts, kind, _behind = spec
+        pts = [Bd(*q) for q in pts]
+        c.put(wire2(pts), LINE_PINK_D)          # thin darker-fur limb, never black inside
+        if kind != "none":
+            draw_hand(c, kind, *pts[-1])
+
+    for spec in p.arms:
+        if spec[2]:
+            draw_arm(spec)
 
     # Jelly-bean head + body, muzzle and cheek bump
     pts = []
@@ -422,15 +467,16 @@ def draw_character(p: Pose) -> np.ndarray:
         c.part(tm, TONGUE)
         c.put(wire(tongue[1:4]) & tm, RED)
     elif p.mouth != "none":
-        c.put(wire([Hd(x, y) for x, y in MOUTH_LINE]), LINE_PINK_D)
+        if p.mouth in ("smile", "grit"):
+            c.put(wire([Hd(x, y) for x, y in MOUTH_LINE]), LINE_PINK_D)
         if p.mouth == "open":
             om = polygon([Hd(x, y) for x, y in OPEN_MOUTH])
             c.part(om, RED)
-            c.put(om & ellipse(*Hd(40.0, 30.5), 2.6, 3.0), RED_D)
+            c.put(om & ellipse(*Hd(38.5, 33.0), 3.2, 2.6), RED_D)
             top_edge = om & ~look(om, 0, -1)
-            c.put(top_edge | (om & look(top_edge, 0, -1) & (XX < Hd(39.5, 0)[0])), TEETH)
+            c.put(top_edge & (XX < Hd(40.5, 0)[0]), TEETH)
             low = om & ~look(om, 0, 1)
-            c.put((low | (om & look(low, 0, 1))) & ~top_edge & (XX < Hd(41.0, 0)[0]), TONGUE)
+            c.put(low & ~top_edge & (XX > Hd(29.5, 0)[0]) & (XX < Hd(39.0, 0)[0]), TONGUE)
         elif p.mouth == "grit":
             x0, y0 = Hd(36, 29)
             x0, y0 = int(round(x0)), int(round(y0))
@@ -439,13 +485,16 @@ def draw_character(p: Pose) -> np.ndarray:
             c.put(g & (YY == y0 + 2), OUT)
             c.put(g & ((XX == x0 + 2) | (XX == x0 + 4)), OUT)
         elif p.mouth == "o":
-            om = ellipse(*Hd(39.0, 29.5), 1.6, 2.2)
-            c.part(om, RED)
+            om = ellipse(*Hd(25.5, 38.4), 2.4, 1.5)    # little yelp at the jaw, under the snout
+            c.part(om, RED_D)
             c.put(om & ~look(om, 0, 1), TONGUE)
         # muzzle freckles and whisker
-        for fx, fy in ((28, 35), (26, 37), (29, 37)):
-            c.dot(*Hd(fx, fy), LINE_PINK_D)
-        c.put(wire([Hd(31, 36), Hd(34, 36.4)]), LINE_PINK_D)
+        if p.mouth in ("smile", "grit"):
+            for fx, fy in ((28, 35), (26, 37), (29, 37)):
+                c.dot(*Hd(fx, fy), LINE_PINK_D)
+            c.put(wire([Hd(31, 36), Hd(34, 36.4)]), LINE_PINK_D)
+        else:
+            c.dot(*Hd(26, 35.5), LINE_PINK_D)
 
     # Snout tip with a dot and whiskers, then the huge wedge nose
     c.part(ellipse(*Hd(9.3, 34 + p.nose_dy), 3.3, 3.0), PINK, shade=PINK_D, depth=1, inner=LINE_PINK)
@@ -494,9 +543,9 @@ def draw_character(p: Pose) -> np.ndarray:
     c.put(wire([Hd(33.2, 12.6 - lift), Hd(35.8, 13.4 - lift), Hd(38.0, 15.6 - lift)]), OUT)
     c.dot(*Hd(33.2, 11.8 - lift), OUT)
 
-    if not p.arms_behind:
-        for k in range(2):
-            draw_arm(k)
+    for spec in p.arms:
+        if not spec[2]:
+            draw_arm(spec)
 
     for fn in p.extras:
         fn(c, ctx)
@@ -569,7 +618,9 @@ def speed_lines(phase: int) -> Callable:
 def dust(xs) -> Callable:
     def fn(c: Canvas, ctx) -> None:
         for x in xs:
-            c.put(ellipse(x, 63.0, 1.7, 1.2) | ellipse(x + 2.0, 63.4, 1.1, 0.9), DUST)
+            puff = ellipse(x, 62.4, 2.5, 1.8) | ellipse(x + 2.8, 63.0, 1.8, 1.3)
+            c.put(puff, (198, 198, 204))
+            c.put(puff & ~look(puff, 0, -1) | (puff & ~look(puff, -1, 0)), (228, 228, 232))
     return fn
 
 
@@ -606,7 +657,8 @@ def magnifier(look_dx: int) -> Callable:
     def fn(c: Canvas, ctx) -> None:
         lx, ly = ctx["Hd"](RIGHT_EYE[0], RIGHT_EYE[1] - 1)
         hand = ctx["hands"][1]
-        c.part(capsule((lx + 3.4, ly + 4.2), hand, 0.9), BRASS, shade=BRASS_D, depth=1, inner=BRASS_D)
+        tail = (hand[0] + 1.4, hand[1] + 3.0)
+        c.part(capsule((lx + 3.4, ly + 4.2), tail, 0.9), BRASS, shade=BRASS_D, depth=1, inner=BRASS_D)
         c.part(ellipse(lx, ly, 6.2, 6.2), GOLD, shade=GOLD_D, depth=1)
         c.put(ellipse(lx, ly, 5.0, 5.0), GLASS)
         eye = ellipse(lx, ly, 4.0, 4.4)
@@ -616,7 +668,8 @@ def magnifier(look_dx: int) -> Callable:
         c.put(rect(px0, py0, px0 + 2, py0 + 2) & eye, BLACK)
         c.dot(lx - 3, ly - 4, WHITE)
         c.dot(lx - 4, ly - 3, WHITE)
-        c.part(ellipse(hand[0], hand[1], 1.6, 1.35), PINK, shade=PINK_D, depth=1, inner=LINE_PINK)
+        draw_hand(c, "open", *hand)                         # fist wrapped round the handle
+        c.put(capsule(tail, tail, 0.9) & ~hand_mask("open", *hand), BRASS_D)
     return fn
 
 
@@ -654,8 +707,12 @@ def row_run_left():
             dx, lift = RUN_STEP[(i + 4 * k) % 8]
             legs.append((HIPS[k][0] + dx, ANKLE_Y - lift))
         swing = RUN_STEP[i][0]
-        arms = (((31 - 0.375 * swing, 47.5 + (0.5 if swing > 0 else 0)), None),
-                ((37 + 0.375 * swing, 48.5 - (0.5 if swing > 0 else 0)), None))
+        arms = []
+        for sh, sgn in (((33, 42), 1), ((37, 42), -1)):
+            hx = 35 + 3.8 * swing * sgn
+            hy = 44.5 - 0.25 * abs(swing)
+            arms.append(([sh, (hx, hy)], "open", hx >= 35))   # forward arm in front, back arm behind
+        arms = tuple(arms)
         flap = [0, 6, 10, 6, 0, -6, -10, -6][i]
         extras = [speed_lines(i)]
         if i in (0, 4):
@@ -682,7 +739,7 @@ def row_waving():
         frames.append(Pose(
             mouth="open", pupil=(1, 0),
             ears=(ear(EAR_L, d_flap=4 * (i % 2)), ear(EAR_R, d_flap=-4 * (i % 2))),
-            arms=(((32, 48.5), None), (hands[i], elbow)), shoulders=((32.5, 43.0), (45.4, 38.5)),
+            arms=(HANG_ARMS[0], ([(46, 38.5), elbow, hands[i]], "open", False)),
             tail_dy=-(i % 2)))
     return [draw_character(p) for p in frames]
 
@@ -691,26 +748,26 @@ def row_jumping():
     frames = [
         Pose(hdy=1, bdy=2, eyes="wide", mouth="grit",
              ears=((-40, 4.0, -100, 12.0), (60, 5.5, 118, 12.0)),
-             arms=(((30, 46), None), ((37, 46.5), None))),
+             arms=(([(31, 41.5), (31, 45)], "hang", False), ([(38, 42), (38, 45.5)], "hang", False))),
         Pose(gy=-3, legs_air=True, eyes="wide", mouth="o",
              ears=((-45, 4.0, -125, 11.0), (62, 5.0, 130, 11.0)),
-             arms=(((20, 44), None), ((52, 38), None)), shoulders=((26.8, 45.0), (46.8, 42.0)),
+             arms=(([(27, 44), (17, 45.5)], "open", False), ([(46.6, 41.5), (52, 37)], "open", False)),
              extras=[bang(9, 14)]),
         Pose(gy=-5, legs_air=True, eyes="wide", mouth="open", brows=1,
              ears=((-55, 4.0, -95, 11.0), (60, 4.5, 95, 11.0)),
-             arms=(((19, 39.5), (22, 42)), ((52, 31), (50.5, 36))), shoulders=((26.8, 44.0), (46.8, 40.0)),
+             arms=(([(27, 43.5), (17, 47)], "open", False), ([(46.6, 40), (50.5, 36), (52, 31)], "open", False)),
              extras=[sweat(15, 18), sweat(50, 22)]),
         Pose(gy=-2, legs_air=True, eyes="wide", mouth="o",
              ears=((-28, 3.5, -60, 8.5), (38, 3.5, 62, 8.5)),
-             arms=(((21, 42), None), ((51, 36), None)), shoulders=((26.8, 45.0), (46.8, 41.0))),
+             arms=(([(27, 44.5), (17.5, 45)], "open", False), ([(46.6, 41), (52, 35)], "open", False))),
         Pose(hdy=1, bdy=1, mouth="grit",
              ears=(ear(EAR_L, d_flap=-10), ear(EAR_R, d_flap=12)),
-             arms=(((30, 48), None), ((37, 49), None)), extras=[dust([22, 47])]),
+             extras=[dust([21, 46])]),
     ]
     return [draw_character(p) for p in frames]
 
 
-SCREAM_LIMBS = [(13, 21), (8, 28), (56, 40), (56, 51), (12, 59), (36, 62)]
+SCREAM_LIMBS = [(13, 21), (8, 28), (56, 40), (56, 51), (12, 59), (36, 61)]
 
 
 def draw_scream(i: int) -> np.ndarray:
@@ -729,7 +786,8 @@ def draw_scream(i: int) -> np.ndarray:
     for k, (hx, hy) in enumerate(SCREAM_LIMBS):
         jit = 1 if (i + k) % 2 else 0
         hand = P(hx + (jit if k % 2 else -jit) * 0.0, hy + (jit if k in (2, 3) else 0))
-        c.part(wire([(bcx, bcy), hand]) | cross(*hand), PINK)
+        c.part(wire([(bcx, bcy), hand]), PINK)
+        draw_hand(c, "flower", *hand)
 
     # Stiff spike ears pointing up and right
     quiver = [0, 2, -1, 3, -2, 1, -3, 2][i]
@@ -844,8 +902,9 @@ def row_waiting():
         frames.append(Pose(
             gx=tremble[i], pupil=(0, -3), mouth="grit", brows=1,
             ears=((-40, 4.5, -122, 11.0), (60, 6.0, 145, 11.0)),
-            arms=(((34, 40), None), ((36, 40), None)), tail_dy=1,
-            extras=[clasp(), bubble(bob[i])]))
+            arms=(([(28.5, 47.5), (29.5, 45.5), (31.5, 43)], "open", False),
+                  ([(40.5, 47.5), (39.5, 45.5), (38.5, 43)], "open", False)),
+            tail_dy=1, extras=[bubble(bob[i])]))
     return [draw_character(p) for p in frames]
 
 
@@ -900,15 +959,16 @@ def row_working():
     frames = []
     for i in range(6):
         active = i % 2
-        hl = (24, 44 if active == 0 else 45)
-        hr = (28, 45 if active == 1 else 46)
+        far_hand = (20.5, 43 if active == 0 else 44)
+        near_hand = (27.5, 43 if active == 1 else 44)
         extras = [tick_burst(active)]
         if i in (2, 3):
             extras.append(sweat(50, 14 + (i - 2)))
         pose = Pose(
             gx=5, hdy=1, bdy=1, pupil=(-2, -1), mouth="grit", brows=1,
             ears=((-5 + 3 * active, 4.0, 70, 10.0), (35, 4.0, 80 - 4 * active, 9.0)),
-            arms=((hl, None), (hr, None)), pre=[computer(i)], extras=extras)
+            arms=(([(36, 44), far_hand], "open", True), ([(33, 42), near_hand], "open", False)),
+            pre=[computer(i)], extras=extras)
         f = draw_character(pose)
         frames.append(np.ascontiguousarray(f[:, ::-1]))   # face right, toward the monitor
     return frames
@@ -921,7 +981,7 @@ def row_review():
         frames.append(Pose(
             hdx=scan[i], eyes=("squint", "open"), pupil=(scan[i], 0),
             ears=(ear(EAR_L, d_flap=6), EAR_R),
-            arms=(((32, 48.5), None), ((41, 30), None)), shoulders=((32.5, 43.0), (44.6, 34.5)),
+            arms=(HANG_ARMS[0], ([(45.5, 38.5), (40, 32.5)], "none", False)),
             extras=[magnifier(scan[i] * 2)]))
     return [draw_character(p) for p in frames]
 
@@ -1038,6 +1098,30 @@ def make_before_after(before_path: str, atlas: Image.Image, path: str) -> None:
     out.convert("RGB").save(path)
 
 
+HAND_PICKS = [(0, 0), (1, 3), (3, 1), (4, 1), (6, 1), (7, 1), (8, 1), (5, 0)]
+
+
+def make_hands_before_after(before_path: str, atlas: Image.Image, path: str) -> None:
+    """v3 vs v4 torso/hand crops at 3x NEAREST, two versions stacked per cell."""
+    before = Image.open(before_path).convert("RGBA")
+    lx0, ly0, lx1, ly1 = 4, 18, 60, 66                      # logical crop
+    box = (lx0 * SCALE, ly0 * SCALE + PAD_TOP, lx1 * SCALE, ly1 * SCALE + PAD_TOP)
+    cw, ch = (box[2] - box[0]) * 3, (box[3] - box[1]) * 3
+    cols = 4
+    out = Image.new("RGBA", (cols * (cw + 8), 4 * (ch + 30)), (235, 235, 235, 255))
+    d = ImageDraw.Draw(out)
+    f = font(22)
+    for i, (r, c_) in enumerate(HAND_PICKS):
+        gx_, gy_ = (i % cols) * (cw + 8), (i // cols) * 2 * (ch + 30)
+        for k, (name, sheet) in enumerate((("v3", before), ("v4", atlas))):
+            cell = sheet.crop((c_ * CELL_W + box[0], r * CELL_H + box[1], c_ * CELL_W + box[2], r * CELL_H + box[3]))
+            cell = cell.resize((cw, ch), Image.NEAREST)
+            y = gy_ + k * (ch + 30)
+            d.text((gx_ + 6, y + 2), f"{name} {ROW_SPEC[r][0]} c{c_}", fill=(0, 0, 0, 255), font=f)
+            out.alpha_composite(cell, (gx_, y + 28))
+    out.convert("RGB").save(path)
+
+
 def make_dark_light(rows, path: str) -> None:
     picks = [(0, 0), (2, 1), (3, 1), (5, 0), (6, 0), (7, 0), (8, 0)]
     out = Image.new("RGBA", (CELL_W * len(picks), CELL_H * 2), (0, 0, 0, 255))
@@ -1108,8 +1192,7 @@ PET_JSON = {
 GIF_MS = {"idle": 220, "running-right": 90, "running-left": 90, "waving": 160,
           "jumping": 140, "failed": 80, "waiting": 160, "running": 110, "review": 200}
 
-# Reference art is not committed; point PET_REFS_DIR at it (default: ./refs).
-REFERENCE = os.path.join(os.environ.get("PET_REFS_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "refs")), "3.png")
+REFERENCE = "/tmp/claude-695000033/-home-anton-casais/03a0a754-38c7-4292-926f-6a2ac4514355/images/3.png"
 
 
 def main() -> int:
@@ -1131,9 +1214,9 @@ def main() -> int:
     if os.path.exists(REFERENCE):
         make_vs_reference(rows, REFERENCE, os.path.join(here, "vs-reference.png"))
     make_dark_light(rows, os.path.join(here, "dark-light-check.png"))
-    before = os.path.join(here, "backup-v2", "spritesheet.webp")
+    before = os.path.join(here, "backup-v3", "spritesheet.webp")
     if os.path.exists(before):
-        make_before_after(before, atlas, os.path.join(here, "lines-before-after.png"))
+        make_hands_before_after(before, atlas, os.path.join(here, "hands-before-after.png"))
     img_dir = os.path.dirname(REFERENCE)
     for ref_name, (r, c_), out_name, label in (("4.png", (5, 0), "vs-reference-scream.png", "failed[0]"),
                                                ("6.png", (7, 0), "vs-reference-computer.png", "running[0]")):
