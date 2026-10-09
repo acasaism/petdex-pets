@@ -50,6 +50,9 @@ npx petdex edit <slug> --sprite pets/<character>/<variant>/spritesheet.webp
 
 Submitting a parent folder with several pets asks for an interactive confirmation.
 
+`petdex edit` only works once a pet is approved; a pending one returns `pet_not_editable`.
+Pending follow-up: once `courage-the-cowardly-dog-pixel` is approved, upload v3 with the `edit` command above.
+
 ## Versions
 
 Tags are `<character>-<variant>-vN`, e.g. `courage-cartoon-v4`, `courage-pixel-v3`.
