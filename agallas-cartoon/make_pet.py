@@ -76,6 +76,7 @@ WHITE = (1.0, 1.0, 1.0)
 MOUTH = rgb(128, 22, 40)
 TONGUE = rgb(236, 112, 128)
 TEETH = rgb(246, 234, 172)
+GRIN = rgb(250, 248, 238)       # off-white clenched teeth
 RED = rgb(222, 40, 40)
 ORANGE = rgb(244, 156, 46)
 TONGUE_S = rgb(172, 82, 54)
@@ -681,20 +682,39 @@ def draw_mouth(ctx: cairo.Context, p: Pose) -> None:
         line(ctx, lambda c: (c.move_to(640, 360 - 4 * curl),
                              c.curve_to(660, 372 + 12 * curl, 690, 366 + 10 * curl, 708, 352 - 8 * curl)), LWM)
     elif kind == "grit":
-        jd = jaw_dense()
-        upper = offset_curve(jd, -40 * p.mouth_amt)
-        lower = offset_curve(jd, 38 * p.mouth_amt)
-        teeth = spline(upper + lower[::-1], closed=True)
-        fill_outline(ctx, teeth, TEETH, LWM)
+        # short clenched grin sitting on the jaw line near the cheek (not along the whole jaw)
+        line(ctx, spline(JAW[:3], closed=False), LWM)
+        cx, cy, ang = 620.0, 478.0, -30.0
+        L, H, r = 150.0, 88.0 * p.mouth_amt, 32.0 * p.mouth_amt
+        ctx.save()
+        ctx.translate(cx, cy)
+        ctx.rotate(math.radians(ang))
+
+        def grin(c: cairo.Context) -> None:
+            x0, x1, y0, y1 = -L / 2, L / 2, -H / 2, H / 2
+            c.new_sub_path()
+            c.move_to(x0 + r, y0 + 4)
+            c.curve_to(-L * 0.15, y0 + 9, L * 0.15, y0 + 9, x1 - r, y0 + 4)
+            c.arc(x1 - r, y0 + r + 2, r, -math.pi / 2, 0)
+            c.arc(x1 - r, y1 - r, r, 0, math.pi / 2)
+            c.curve_to(L * 0.15, y1 + 6, -L * 0.15, y1 + 6, x0 + r, y1)
+            c.arc(x0 + r, y1 - r, r, math.pi / 2, math.pi)
+            c.arc(x0 + r, y0 + r + 2, r, math.pi, math.pi * 1.5)
+            c.close_path()
+        ctx.new_path()
+        grin(ctx)
+        ctx.set_source_rgb(*GRIN)
+        ctx.fill()
         ctx.save()
         ctx.new_path()
-        teeth(ctx)
+        grin(ctx)
         ctx.clip()
-        line(ctx, spline(jd, closed=False), LWM * 0.8)
-        n = len(jd)
-        for i in range(3, n - 2, 5):
-            a, b = upper[i], lower[i]
-            line(ctx, lambda c, a=a, b=b: (c.move_to(*a), c.line_to(*b)), LWM * 0.75)
+        tl = THIN * 1.25
+        line(ctx, lambda c: (c.move_to(-L / 2, 3), c.curve_to(-L * 0.2, 7, L * 0.2, 7, L / 2, 3)), tl)
+        for x in (-L * 0.2, L * 0.03, L * 0.25):
+            line(ctx, lambda c, x=x: (c.move_to(x, -H / 2), c.line_to(x, H / 2 + 6)), tl)
+        ctx.restore()
+        line(ctx, grin, LWM)
         ctx.restore()
     elif kind == "open":
         jd = jaw_dense()
