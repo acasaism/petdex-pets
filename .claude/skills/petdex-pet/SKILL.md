@@ -1,0 +1,60 @@
+---
+name: petdex-pet
+description: "Trigger: new pet, create character, update pet, fix sprite, spritesheet, codex pet, petdex publish. Create, update and publish desktop pets in this repo."
+license: Apache-2.0
+metadata:
+  author: "acasaism"
+  version: "1.0"
+---
+
+## Activation Contract
+
+Load before creating a character or variant under `pets/`, changing any `spritesheet.webp` or `make_pet.py`, or publishing/updating a pet on Petdex.
+
+## Hard Rules
+
+- Design from references: gather 3+ reference images (canonical look plus the poses you need), LOOK at them, and list the character's features before drawing. Never invent the design. Keep reference art out of git (`PET_REFS_DIR`).
+- Apply every rule in `references/art-guidelines.md`.
+- Run two review passes before reporting any visual change: (1) all rows at 1x; (2) 3–4x crops of hands, mouths, eyes and props in every changed frame. Report what each pass found.
+- Diff images on all channels (`getbbox(alpha_only=False)`); alpha-only diffs miss colour changes.
+- Every accepted version gets a commit and a tag `<character>-<variant>-vN`; `tools/validate_pet.py` must exit 0 and previews must be refreshed first.
+- Publishing, withdrawing and licence choice are the user's decisions. Fan art never uses `cc0`, `cc-by` or `cc-by-sa`.
+
+## Decision Gates
+
+| Situation | Path |
+|---|---|
+| New character or variant | Create steps |
+| Redraw or fix an existing pet | Update steps |
+| Petdex status `pending` | User withdraws on the web ("Retirar envío"), then `submit` |
+| Petdex status approved | `npx petdex edit <slug> --sprite <sheet>` |
+| Several pets to submit | One `submit` per folder |
+
+## Execution Steps
+
+Create:
+1. Gather references; write a feature checklist from them.
+2. Create `pets/<character>/<variant>/` with `pet.json` (`id` = Petdex slug) and `make_pet.py`, starting from an existing generator. Model one canonical view and mirror it for the other direction.
+3. Generate; render the reference next to frame 0 and fix feature by feature.
+4. Double review pass, fix, repeat (about 4 rounds max).
+5. `python3 -I tools/validate_pet.py pets/<character>/<variant>` → exit 0, then `python3 -I tools/make_previews.py pets/<character>/<variant>`.
+6. Copy the folder to `~/.codex/pets/<id>/` and `~/.petdex/pets/<id>/` to test; tell the user to re-import it in Orca.
+7. Commit, tag, add the README catalog row.
+
+Update:
+1. Use the previous tag's spritesheet as baseline (`git show <tag>:<path>`); change only the targeted rows.
+2. Regenerate; `tools/validate_pet.py --compare <baseline> <pet>` must list only the intended rows.
+3. Double review pass on the changed rows plus a full-sheet overview.
+4. Validate, refresh previews, commit, tag the next version, update the README status.
+5. Publish per the Decision Gates only when the user asks.
+
+## Output Contract
+
+Return: files and tag changed; findings of pass 1 and pass 2; validator result; changed rows from `--compare`; user actions still needed (Orca re-import, Petdex withdraw); pending items.
+
+## References
+
+- `references/art-guidelines.md` — visual rules learned on the Courage pets.
+- `references/format-and-publishing.md` — atlas contract, install paths, Petdex CLI behaviour, licences.
+- `tools/validate_pet.py`, `tools/make_previews.py` — repo tools (paths from the repo root).
+- `pets/courage/` — worked example: `cartoon` (pycairo) and `pixel` (Pillow).

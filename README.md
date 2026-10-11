@@ -21,6 +21,12 @@ Track submissions at https://petdex.dev/u/acasaism.
 
 Every state is in `pets/<character>/<variant>/preview/` (one GIF per state plus `sheet.png`).
 
+## Workflow
+
+Creating or updating a pet follows the `petdex-pet` skill (`.claude/skills/petdex-pet/`), which Claude Code loads
+automatically in this repo; other agents start from `AGENTS.md`. In short: design from reference images, two review
+passes (overview and zoomed detail), `tools/validate_pet.py` must pass, refresh previews, commit and tag.
+
 ## Layout
 
 ```
