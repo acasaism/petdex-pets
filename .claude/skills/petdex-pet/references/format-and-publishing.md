@@ -37,7 +37,7 @@ Codex pet format, as shipped in Orca's `codex-pet-sprite-defaults.js`.
 - Re-running `submit` is safe: an existing submission triggers an interactive duplicate prompt that a non-TTY run cannot answer, so nothing is sent. Never pass `--force` (it creates `-2` slugs).
 - Pending submissions are not editable (`pet_not_editable`); only the web profile can withdraw them ("Retirar envío"). Approved pets update with `npx petdex edit <slug> --sprite <sheet>` (also `--desc`, `--displayName`).
 - The spinner output is noisy: save raw output to a file, strip ANSI codes, and read the `✓ <label> → <slug> …` line.
-- Track status at `https://petdex.dev/u/<username>` (held submissions are visible only when signed in).
+- The CLI points to `https://petdex.dev/u/<username>` for status, but the user could not see the held submission there; treat the CLI's `✓ <label> → <slug>` line as the proof of submission.
 
 ## Licences
 

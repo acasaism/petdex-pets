@@ -4,9 +4,9 @@
 Usage: python3 -I tools/validate_pet.py [--compare OLD_SPRITESHEET] pets/<character>/<variant> [...]
 
 Prints one PASS/FAIL/SKIP line per check per pet, then a summary, and exits 1 if any check
-fails. --compare also lists the animation rows that differ from OLD_SPRITESHEET in any
-channel; it is informational and never fails. The atlas layout, frame counts, background
-and preview timing come from tools/make_previews.py.
+fails. INFO lines never fail: identical consecutive frames (usually unintended), and with
+--compare the animation rows that differ from OLD_SPRITESHEET in any channel. The atlas
+layout, frame counts, background and preview timing come from tools/make_previews.py.
 """
 import argparse
 import importlib.util
@@ -184,11 +184,23 @@ def validate(pet_dir):
                           for check in IMAGE_CHECKS[1:]]
     results.append(outcome("cell occupancy", check_occupancy(sheet)))
     results.append(outcome("cell margins", check_margins(sheet)))
+    hint = f"run: python3 -I tools/make_previews.py {pet_dir}"
     if not (pet_dir / "preview").is_dir():
-        return results + [("previews", "SKIP", "no preview/ directory")]
-    hint = f"previews are stale, run: python3 -I tools/make_previews.py {pet_dir}"
-    results.append(outcome("previews", check_previews(pet_dir / "preview", sheet), hint))
+        return results + [outcome("previews", ["no preview/ directory"], hint)]
+    results.append(outcome("previews", check_previews(pet_dir / "preview", sheet), "stale, " + hint))
     return results
+
+
+def duplicate_frames(sheet):
+    """Labels like 'idle[1]=idle[2]' for consecutive used frames that are pixel-identical."""
+    sheet = sheet.convert("RGBA")
+    pairs = []
+    for row, (state, durations) in enumerate(ANIMATIONS):
+        frames = [sheet.crop((col * CELL_W, row * CELL_H, (col + 1) * CELL_W, (row + 1) * CELL_H))
+                  for col in range(len(durations))]
+        pairs += [f"{state}[{col}]={state}[{col + 1}]"
+                  for col in range(len(frames) - 1) if not differs(frames[col], frames[col + 1])]
+    return pairs
 
 
 def changed_rows(old, new):
@@ -218,6 +230,11 @@ def main(argv):
         for check, status, detail in validate(pet_dir):
             counts[status] += 1
             print(f"{status}  {pet_dir}  {check}" + (f": {detail}" if detail else ""))
+        sheet_path = check_pet_json(pet_dir)[1]
+        sheet = check_format(sheet_path)[1] if sheet_path is not None else None
+        if sheet is not None and (dups := duplicate_frames(sheet)):
+            shown = ", ".join(dups[:6]) + (f" and {len(dups) - 6} more" if len(dups) > 6 else "")
+            print(f"INFO  {pet_dir}  duplicate consecutive frames: {shown}")
         if old is not None:
             sheet_path = check_pet_json(pet_dir)[1]
             if sheet_path is None:

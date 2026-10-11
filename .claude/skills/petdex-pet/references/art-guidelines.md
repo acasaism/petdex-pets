@@ -50,5 +50,5 @@ Rules learned while drawing the Courage pets. Each one fixed a defect the user a
 | running | A WORK loop (typing, busy), not literal running |
 | review | Inspecting (e.g. magnifier) |
 
-- Avoid identical consecutive frames unless intended: previews merge them and the motion looks thinner.
+- Avoid identical consecutive frames unless intended: previews merge them and the motion looks thinner. `tools/validate_pet.py` lists them as INFO.
 - No pixel of a used cell may touch the cell border (the validator checks it).

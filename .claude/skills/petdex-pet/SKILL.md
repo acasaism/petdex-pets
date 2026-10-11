@@ -15,7 +15,7 @@ Load before creating a character or variant under `pets/`, changing any `sprites
 
 - Design from references: gather 3+ reference images (canonical look plus the poses you need), LOOK at them, and list the character's features before drawing. Never invent the design. Keep reference art out of git (`PET_REFS_DIR`).
 - Apply every rule in `references/art-guidelines.md`.
-- Run two review passes before reporting any visual change: (1) all rows at 1x; (2) 3–4x crops of hands, mouths, eyes and props in every changed frame. Report what each pass found.
+- Run two review passes before reporting any visual change: (1) all rows at 1x; (2) 3–4x crops of hands, mouths, eyes and props in every changed frame. Report what each pass found. When a subagent draws, the parent still runs both passes; subagent self-QA is not enough.
 - Diff images on all channels (`getbbox(alpha_only=False)`); alpha-only diffs miss colour changes.
 - Every accepted version gets a commit and a tag `<character>-<variant>-vN`; `tools/validate_pet.py` must exit 0 and previews must be refreshed first.
 - Publishing, withdrawing and licence choice are the user's decisions. Fan art never uses `cc0`, `cc-by` or `cc-by-sa`.
@@ -35,22 +35,22 @@ Load before creating a character or variant under `pets/`, changing any `sprites
 Create:
 1. Gather references; write a feature checklist from them.
 2. Create `pets/<character>/<variant>/` with `pet.json` (`id` = Petdex slug) and `make_pet.py`, starting from an existing generator. Model one canonical view and mirror it for the other direction.
-3. Generate; render the reference next to frame 0 and fix feature by feature.
+3. Generate (output goes to a git-ignored `build/` or `out/`); copy the new `spritesheet.webp` into the variant folder, keeping its `pet.json`. Render the reference next to frame 0 and fix feature by feature.
 4. Double review pass, fix, repeat (about 4 rounds max).
 5. `python3 -I tools/validate_pet.py pets/<character>/<variant>` → exit 0, then `python3 -I tools/make_previews.py pets/<character>/<variant>`.
 6. Copy the folder to `~/.codex/pets/<id>/` and `~/.petdex/pets/<id>/` to test; tell the user to re-import it in Orca.
 7. Commit, tag, add the README catalog row.
 
 Update:
-1. Use the previous tag's spritesheet as baseline (`git show <tag>:<path>`); change only the targeted rows.
-2. Regenerate; `tools/validate_pet.py --compare <baseline> <pet>` must list only the intended rows.
+1. Change only the targeted rows in `make_pet.py`; regenerate and copy the spritesheet in as in Create step 3.
+2. `python3 -I tools/validate_pet.py --compare <(git show <prev-tag>:pets/<character>/<variant>/spritesheet.webp) pets/<character>/<variant>` must list only the intended rows.
 3. Double review pass on the changed rows plus a full-sheet overview.
 4. Validate, refresh previews, commit, tag the next version, update the README status.
 5. Publish per the Decision Gates only when the user asks.
 
 ## Output Contract
 
-Return: files and tag changed; findings of pass 1 and pass 2; validator result; changed rows from `--compare`; user actions still needed (Orca re-import, Petdex withdraw); pending items.
+Return: files and tag changed; findings of pass 1 and pass 2; validator result, including INFO lines (duplicate frames, changed rows from `--compare`); user actions still needed (Orca re-import, Petdex withdraw); pending items.
 
 ## References
 

@@ -67,6 +67,20 @@ class AtlasContractTest(unittest.TestCase):
         self.assertEqual([len(d) for _, d in mp.ANIMATIONS], [6, 8, 8, 4, 5, 8, 6, 6, 6])
 
 
+class DuplicateFramesTest(unittest.TestCase):
+    def test_identical_neighbours_are_listed(self):
+        self.assertIn("idle[0]=idle[1]", vp.duplicate_frames(make_sheet()))
+
+    def test_distinct_frames_are_not_listed(self):
+        sheet = Image.new("RGBA", mp.ATLAS_SIZE, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(sheet)
+        for row, (_, durations) in enumerate(mp.ANIMATIONS):
+            for col in range(len(durations)):
+                x, y = col * W + 20 + 4 * col, row * H + H // 2
+                draw.rectangle((x, y, x + 6, y + 6), fill=DOT)
+        self.assertEqual(vp.duplicate_frames(sheet), [])
+
+
 class SyntheticPetTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -112,9 +126,15 @@ class SyntheticPetTest(unittest.TestCase):
         quietly(mp.render, self.pet)
         self.assertAllPass()
 
-    def test_missing_previews_are_skipped(self):
+    def test_missing_previews_fail(self):
         self.write(previews=False)
-        self.assertEqual(self.results()["previews"][0], "SKIP")
+        self.assertFails("previews", "preview/", "make_previews.py")
+
+    def test_cli_reports_duplicate_consecutive_frames(self):
+        self.write()
+        code, out = quietly(vp.main, [str(self.pet)])
+        self.assertEqual(code, 0)
+        self.assertIn("duplicate consecutive frames: idle[0]=idle[1]", out)
 
     def test_wrong_atlas_size(self):
         self.write(make_sheet().crop((0, 0, 1536, 1864)), previews=False)
@@ -219,6 +239,7 @@ class CompareTest(unittest.TestCase):
             new = make_sheet()
             new.putpixel((W // 2, 3 * H + H // 2), (10, 200, 30, 255))  # waving[0]
             new.save(pet / "spritesheet.webp", "WEBP", lossless=True)
+            quietly(mp.render, pet)  # a pet without previews fails validation
             make_sheet().save(pathlib.Path(tmp) / "old.webp", "WEBP", lossless=True)
             code, out = quietly(vp.main, ["--compare", str(pathlib.Path(tmp) / "old.webp"), str(pet)])
         self.assertEqual(code, 0, out)
