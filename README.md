@@ -54,7 +54,7 @@ python3 -I pets/courage/cartoon/make_pet.py   # writes pets/courage/cartoon/out/
 
 Generators write a local build (with their original local ids `agallas` / `agallas-cartoon`) plus QA images,
 all git-ignored. Copy the new `spritesheet.webp` over the committed one to update a pet.
-Reference art is not committed: keep it in `pets/<character>/refs/` (git-ignored, with `SOURCES.txt`) and pass `PET_REFS_DIR=pets/<character>/refs` to the generators or `--refs` to `tools/review_sheets.py`.
+Reference art is not committed: keep it in `pets/<character>/refs/` (git-ignored, with `SOURCES.txt`) and compare with `tools/review_sheets.py --refs pets/<character>/refs`. The Courage generators' own comparison images expect file names from their original session and are skipped when those files are missing.
 
 After committing a new spritesheet, refresh its previews:
 

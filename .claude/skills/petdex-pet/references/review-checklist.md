@@ -13,7 +13,7 @@ python3 -I tools/review_sheets.py \
   pets/<character>/<variant>
 ```
 
-Omit `--baseline` for a new pet. Reference art lives in the git-ignored `pets/<character>/refs/` (character art at the top level, props in `refs/props/`, origins in `SOURCES.txt`); the tool reads up to 6 top-level images, whatever their extension claims. Output goes to the
+Omit `--baseline` for a new pet. Reference art lives in the git-ignored `pets/<character>/refs/` (character art at the top level, props in `refs/props/`, origins in `SOURCES.txt`); the tool reads up to 6 top-level `.png/.jpg/.jpeg/.webp` files, decoding PNG, JPEG or WebP whatever that extension claims. Output goes to the
 git-ignored `pets/<character>/<variant>/review/`, including `checklist.md`.
 
 ## Pass 1: overview
