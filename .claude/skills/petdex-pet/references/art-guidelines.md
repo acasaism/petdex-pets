@@ -49,6 +49,7 @@ Rules learned while drawing the Courage pets. Each one fixed a defect the user a
 ## Mouths and teeth
 
 - Keep mouths on the jaw line under the snout, never floating on the cheek (a red block there reads as a wound).
+- One mouth only: teeth or a grimace sit at the mouth corner, connected to the snout by a legible jaw line (in pixel art the mouth line may use a near-outline shade, as a true feature line). Teeth near the ear or the back of the head read as a second mouth, especially in mirrored rows.
 - Gritted teeth are a short, wide grimace with one divider and a few tooth lines; a long band with many dividers reads as a zipper.
 
 ## Animation craft
@@ -56,6 +57,7 @@ Rules learned while drawing the Courage pets. Each one fixed a defect the user a
 - Clients hold some frames longer: Codex/Orca idle holds frames 0 and 5 (1680/1920 ms), Petdex Desktop holds them too (280/320 ms vs 110–140). Put key poses on held frames.
 - Loops must be seamless: the last frame leads into the first.
 - In looping states every frame differs from its neighbour (the validator reports duplicates).
+- Markings move with the body part they sit on: if the torso shifts or leans, its spots shift with it (or keep the whole torso still). Spots fixed while the outline moves look painted on the screen.
 - Run cycles alternate contact and passing poses with a 1-px body bob; jumps go crouch, ascend, hold at the peak, descend, land.
 - Shading, antialiasing and animation-craft ideas adapted from willibrandon/pixel-plugin (MIT).
 
