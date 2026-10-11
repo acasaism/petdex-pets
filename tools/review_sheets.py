@@ -43,7 +43,9 @@ RED_OPACITY = 0.6
 THRESHOLD = 16  # per-channel difference ignored as antialiasing noise
 SCALE = 2
 REF_H, MAX_REFS = 2 * CELL_H, 6
-REF_FORMATS = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG", ".webp": "WEBP"}
+# Image extensions to pick up, and the only decoders allowed: wikis often serve WebP under .png/.jpg names.
+REF_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+REF_FORMATS = ["PNG", "JPEG", "WEBP"]
 FONT = ImageFont.load_default(size=16)
 LINE_H, GAP = 22, 8
 CRITERIA = ["likeness", "hands/limbs", "mouth/teeth", "eyes", "props",
@@ -175,11 +177,10 @@ def reference_images(folder):
     for path in sorted(folder.iterdir()):
         if len(found) == MAX_REFS:
             break
-        image_format = REF_FORMATS.get(path.suffix.lower())
-        if image_format is None or not path.is_file():
+        if path.suffix.lower() not in REF_SUFFIXES or not path.is_file():
             continue
-        try:  # only decode the format the extension names
-            with Image.open(path, formats=[image_format]) as image:
+        try:  # decode only common still-image formats, whatever the extension says
+            with Image.open(path, formats=REF_FORMATS) as image:
                 ref = image.convert("RGBA")
         except (OSError, ValueError, SyntaxError, EOFError, Image.DecompressionBombError) as error:
             print(f"skipped unreadable reference {path.name}: {error}")

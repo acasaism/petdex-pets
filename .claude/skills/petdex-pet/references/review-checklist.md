@@ -9,11 +9,11 @@ subagent's self-QA. This procedure removes the choice of what to look at.
 ```sh
 python3 -I tools/review_sheets.py \
   --baseline <(git show <prev-tag>:pets/<character>/<variant>/spritesheet.webp) \
-  --refs "$PET_REFS_DIR" \
+  --refs pets/<character>/refs \
   pets/<character>/<variant>
 ```
 
-Omit `--baseline` for a new pet and `--refs` only when no reference art exists. Output goes to the
+Omit `--baseline` for a new pet. Reference art lives in the git-ignored `pets/<character>/refs/` (character art at the top level, props in `refs/props/`, origins in `SOURCES.txt`); the tool reads up to 6 top-level images, whatever their extension claims. Output goes to the
 git-ignored `pets/<character>/<variant>/review/`, including `checklist.md`.
 
 ## Pass 1: overview

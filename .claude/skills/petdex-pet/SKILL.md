@@ -13,7 +13,7 @@ Load before creating a character or variant under `pets/`, changing any `sprites
 
 ## Hard Rules
 
-- Design from references: gather 3+ reference images (canonical look plus the poses you need), LOOK at them, and list the character's features before drawing. Never invent the design. Keep reference art out of git (`PET_REFS_DIR`).
+- Design from references: gather 3+ reference images (canonical look plus the poses you need), LOOK at them, and list the character's features before drawing. Never invent the design. Keep reference art in the git-ignored `pets/<character>/refs/` (props in `refs/props/`, sources in `SOURCES.txt`).
 - Apply every rule in `references/art-guidelines.md`.
 - Before reporting any visual change, run `tools/review_sheets.py`, LOOK at every image it writes and fill its `checklist.md` per `references/review-checklist.md`. The parent does this even when a subagent drew; subagent self-QA is not enough.
 - Diff images on all channels (`getbbox(alpha_only=False)`); alpha-only diffs miss colour changes.

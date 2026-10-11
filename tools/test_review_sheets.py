@@ -154,6 +154,15 @@ class SyntheticPetTest(unittest.TestCase):
         self.assertIn("vs-reference.png  6 reference image(s)", out)
         self.assertIn("vs-reference.png", (self.out / "checklist.md").read_text(encoding="utf-8"))
 
+    def test_refs_read_content_whose_extension_lies(self):
+        # Wikis such as Fandom serve WebP bytes under .png/.jpg names.
+        refs = self.tmp / "refs"
+        refs.mkdir()
+        Image.new("RGB", (300, 200), (200, 120, 140)).save(refs / "served-as-webp.png", "WEBP")
+        out = self.run_cli("--out", str(self.out), "--refs", str(refs))
+        self.assertNotIn("skipped unreadable reference served-as-webp.png", out)
+        self.assertIn("vs-reference.png  1 reference image(s)", out)
+
     def test_checklist_has_a_row_per_state_and_every_criterion(self):
         self.run_cli("--out", str(self.out))
         text = (self.out / "checklist.md").read_text(encoding="utf-8")
