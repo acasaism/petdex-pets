@@ -32,6 +32,7 @@ ANIMATIONS = [
     ("running", app_state(6, 120, 220)),
     ("review", app_state(6, 150, 280)),
 ]
+ATLAS_SIZE = (8 * CELL_W, len(ANIMATIONS) * CELL_H)
 
 
 def frames_for(sheet, row, count):
@@ -42,21 +43,27 @@ def frames_for(sheet, row, count):
         yield tile.convert("RGB")
 
 
+def contact_sheet(sheet):
+    """Every used cell composited onto BACKGROUND, at its atlas position (preview/sheet.png)."""
+    contact = Image.new("RGB", ATLAS_SIZE, BACKGROUND[:3])
+    for row, (_, durations) in enumerate(ANIMATIONS):
+        for col, frame in enumerate(frames_for(sheet, row, len(durations))):
+            contact.paste(frame, (col * CELL_W, row * CELL_H))
+    return contact
+
+
 def render(pet_dir):
     meta = json.loads((pet_dir / "pet.json").read_text(encoding="utf-8"))
     sheet = Image.open(pet_dir / meta.get("spritesheetPath", "spritesheet.webp")).convert("RGBA")
-    if sheet.size != (8 * CELL_W, 9 * CELL_H):
+    if sheet.size != ATLAS_SIZE:
         raise SystemExit(f"{pet_dir}: unexpected atlas size {sheet.size}")
     out = pet_dir / "preview"
     out.mkdir(exist_ok=True)
-    contact = Image.new("RGB", (8 * CELL_W, 9 * CELL_H), BACKGROUND[:3])
     for row, (state, durations) in enumerate(ANIMATIONS):
         frames = list(frames_for(sheet, row, len(durations)))
         frames[0].save(out / f"{state}.gif", save_all=True, append_images=frames[1:],
                        duration=durations, loop=0, disposal=2, optimize=False)
-        for col, frame in enumerate(frames):
-            contact.paste(frame, (col * CELL_W, row * CELL_H))
-    contact.save(out / "sheet.png", optimize=True)
+    contact_sheet(sheet).save(out / "sheet.png", optimize=True)
     print(f"{pet_dir}: {len(ANIMATIONS)} gifs + sheet.png")
 
 
