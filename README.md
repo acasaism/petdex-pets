@@ -8,7 +8,7 @@ Drawn procedurally with Python (Pillow / pycairo) together with Claude Code.
 | Pet | Folder | Petdex slug | Status |
 |---|---|---|---|
 | Courage the Cowardly Dog | `pets/courage/cartoon/` | `courage-the-cowardly-dog` | Approved (v4) |
-| Courage the Cowardly Dog (Pixel) | `pets/courage/pixel/` | `courage-the-cowardly-dog-pixel` | Approved (v4.2); v5.2 edit submitted 2026-10-11, queued for admin review |
+| Courage the Cowardly Dog (Pixel) | `pets/courage/pixel/` | `courage-the-cowardly-dog-pixel` | Approved (v4.2); v6 edit submitted 2026-10-11, queued for admin review |
 
 Track submissions at https://petdex.dev/u/acasaism.
 
