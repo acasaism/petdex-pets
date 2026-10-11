@@ -57,8 +57,6 @@ ROW_SPEC = [
 OUT = (34, 22, 30)
 RIM = (255, 247, 242)          # light outer rim for dark backgrounds
 PINK = (230, 162, 175)         # #E6A2AF dusty pink fur
-PINK_D = (198, 126, 145)
-PINK_L = (244, 196, 204)
 LINE_PINK = (185, 112, 127)    # #B9707F interior detail lines (never black inside the body)
 LINE_PINK_D = (169, 96, 111)   # #A9606F mouth / freckles
 JAW = (78, 34, 48)             # grimace jaw line: a true feature line, near the outline colour
@@ -100,6 +98,34 @@ BEIGE_D = (192, 182, 146)
 BEIGE_DD = (150, 140, 108)
 GLOW = (127, 224, 224)         # screen #7FE0E0
 GLOW_D = (52, 150, 160)
+
+# Shading ramps: one light source, top-left in the FINAL frame (mirrored rows are shaded after
+# mirroring). Each material has base (the part's own colour), shadow and highlight. Shadows
+# shift toward purple/blue and gain saturation; highlights shift warm and lighter. No ramp
+# step is pure black or pure white; eye whites and teeth are features and stay unshaded.
+FUR_S = (190, 116, 158)
+FUR_H = (250, 206, 194)
+RUST_S = (132, 50, 56)
+RUST_H = (214, 126, 66)
+BRASS_S = (118, 72, 60)
+BRASS_H = (216, 170, 86)
+GOLD_S = (164, 102, 72)
+GOLD_H = (250, 216, 130)
+BEIGE_S = (180, 168, 158)
+BEIGE_H = (250, 246, 226)      # warm off-white instead of pure white CRT highlights
+SIDE_S = (146, 132, 128)
+WOOD_S = (100, 60, 50)
+WOOD_H = (186, 128, 78)
+GLINT = (252, 250, 238)        # glass glare and lens glints
+RAMPS = {                      # material: (shadow, highlight)
+    "fur": (FUR_S, FUR_H),
+    "rust": (RUST_S, RUST_H),
+    "brass": (BRASS_S, BRASS_H),
+    "gold": (GOLD_S, GOLD_H),
+    "beige": (BEIGE_S, BEIGE_H),
+    "side": (SIDE_S, None),    # the CRT's side panel already faces away from the light
+    "wood": (WOOD_S, WOOD_H),
+}
 
 YY, XX = np.mgrid[0:H, 0:W].astype(float)
 
@@ -178,6 +204,109 @@ def dilate(m) -> np.ndarray:
     return m | look(m, 1, 0) | look(m, -1, 0) | look(m, 0, 1) | look(m, 0, -1)
 
 
+def erode(m) -> np.ndarray:
+    return m & look(m, 1, 0) & look(m, -1, 0) & look(m, 0, 1) & look(m, 0, -1)
+
+
+def blur3(a: np.ndarray) -> np.ndarray:
+    p = np.pad(a, 1)
+    return sum(p[1 + dy:1 + dy + H, 1 + dx:1 + dx + W] for dy in (-1, 0, 1) for dx in (-1, 0, 1)) / 9.0
+
+
+LIGHT = np.array([-1.0, -1.0, 1.4]) / np.linalg.norm([-1.0, -1.0, 1.4])   # top-left, toward the viewer
+DOME_HI, DOME_LO = 0.15, 0.22   # highlight / shadow thresholds around a flat, front-facing surface
+SPOT_RADIUS, SPOT_FALLOFF = 2.2, 0.3   # large volumes: one rounded highlight patch per region
+DOME_BLUR, DOME_SLOPE = 10, 7.0   # smoothing passes and steepness of the volume built from a silhouette
+
+
+def spots(lit: np.ndarray, visible: np.ndarray, regions) -> np.ndarray:
+    """One compact highlight per region instead of a band along the lit edge: centred on the
+    best-lit open fur (centre 2 px and patch 1 px from outlines and features, nudged toward
+    the top-left),
+    limited to a small disc and following the light's iso-contour, so it tapers out."""
+    out = np.zeros((H, W), bool)
+    core = erode(visible)
+    score = lit - 0.01 * (XX + YY)
+    for region in regions:
+        # centre where the open fur is wide; thin volumes (a lens ring) fall back to no inset
+        for centre, area in ((erode(core), core), (core, core), (visible, visible)):
+            cand = centre & region & (lit > DOME_HI)
+            if cand.any():
+                break
+        else:
+            continue
+        py, px = np.unravel_index(np.argmax(np.where(cand, score, -9.0)), score.shape)
+        near = (XX - px) ** 2 + (YY - py) ** 2 <= SPOT_RADIUS ** 2
+        out |= area & region & near & (score >= score[py, px] - SPOT_FALLOFF)
+    return out
+
+
+def form_level(mask: np.ndarray, form: tuple, visible: Optional[np.ndarray] = None) -> np.ndarray:
+    """Per-pixel ramp step for a part: -1 shadow, 0 base, 1 highlight.
+    dome:  a rounded volume (head+body bean, ball, snout) lit from top-left. The volume is the
+           part's full silhouette, smoothed: broad parts get a wide, curved terminator and thin
+           parts a narrow one; details painted on top (eyes, spots) never get edges of their own.
+           Its highlight is one rounded patch on the best-lit open fur, toward the top-left
+           (never a band along an edge); an optional 4th value splits the volume at
+           that row into two highlight regions (head ball, belly). Small domes (radius < 4) use a
+           distance profile so they keep a base-coloured centre. An optional 3rd value overrides
+           the shadow threshold (higher = less shadow).
+    bevel: a flat box face: highlight on its top/left edge, shadow on its right/bottom edge.
+    ramp:  a flat strip (ear face, nose band): highlight at the end nearest the light.
+    small: hands, feet, tail: a 1 px shadow on the edges away from the light (right and
+           underside) and a 1 px highlight on the edges facing it, each on its own half of the part."""
+    lvl = np.zeros((H, W), np.int8)
+    kind = form[0]
+    if kind == "dome":
+        r = form[1]
+        if r >= 4:
+            height = mask.astype(float)
+            for _ in range(DOME_BLUR):
+                height = blur3(height)
+            height *= DOME_SLOPE
+        else:
+            dist, cur = np.zeros((H, W)), mask.copy()
+            for _ in range(r):
+                dist += cur
+                cur = erode(cur)
+            t = dist / r
+            height = blur3(np.sqrt(np.clip(1.0 - (1.0 - t) ** 2, 0.0, 1.0)) * r)
+        gx = (look(height, 1, 0) - look(height, -1, 0)) / 2.0
+        gy = (look(height, 0, 1) - look(height, 0, -1)) / 2.0
+        normal = np.dstack([-gx, -gy, np.ones((H, W))])
+        normal /= np.linalg.norm(normal, axis=-1, keepdims=True)
+        lit = normal @ LIGHT - LIGHT[2]
+        if r >= 4:
+            split = form[3] if len(form) > 3 else None
+            regions = [mask] if split is None else [mask & (YY < split), mask & (YY >= split)]
+            lvl[spots(lit, mask if visible is None else visible, regions)] = 1
+        else:
+            lvl[lit > DOME_HI] = 1
+        lo = form[2] if len(form) > 2 and form[2] is not None else DOME_LO
+        lvl[lit < -lo] = -1
+    elif kind == "bevel":
+        depth = form[1]
+        dark = mask & ~(look(mask, 1, 0) & look(mask, 0, depth))
+        lvl[mask & ~(look(mask, -1, 0) & look(mask, 0, -1)) & ~dark] = 1
+        lvl[dark] = -1
+    elif kind == "ramp":
+        ys, xs = np.nonzero(mask)
+        if xs.size >= 4:
+            along = xs + ys
+            t = (along - along.min()) / max(1, along.max() - along.min())
+            lvl[ys[t <= 0.3], xs[t <= 0.3]] = 1
+            lvl[ys[t >= 0.7], xs[t >= 0.7]] = -1
+    elif kind == "small":
+        ys, xs = np.nonzero(mask)
+        if xs.size:
+            side = (XX - xs.mean()) + (YY - ys.mean())          # > 0: lower-right half of the part
+            far = mask & ((~look(mask, 1, 0) & look(mask, -1, 0)) | (~look(mask, 0, 1) & look(mask, 0, -1)))
+            near = mask & ((~look(mask, -1, 0) & look(mask, 1, 0)) | (~look(mask, 0, -1) & look(mask, 0, 1)))
+            lvl[near & ~far & (side < -1)] = 1
+            lvl[far & (side > 0)] = -1
+    return lvl
+
+
 def ik(a, b, l1, l2, prefer):
     dx, dy = b[0] - a[0], b[1] - a[1]
     d = math.hypot(dx, dy)
@@ -196,31 +325,62 @@ def ik(a, b, l1, l2, prefer):
 class Canvas:
     def __init__(self) -> None:
         self.px = np.zeros((H, W, 4), np.uint8)
+        self.owner = np.full((H, W), -1, np.int16)   # shaded part that owns each pixel's fill
+        self.forms = []                               # (full mask, material, form) per shaded part
 
     def put(self, mask, color) -> None:
         self.px[mask] = (*color, 255)
+        self.owner[mask] = -1
 
     def dot(self, x, y, color) -> None:
         x, y = int(round(x)), int(round(y))
         if 0 <= x < W and 0 <= y < H:
             self.px[y, x] = (*color, 255)
+            self.owner[y, x] = -1
 
-    def part(self, mask, color, outline=True, shade=None, light=None, depth=2, inner=OUT) -> None:
+    def part(self, mask, color, outline=True, inner=OUT, mat=None, form=None) -> None:
         """Fill a part. Its ring is OUT where it falls on transparency (silhouette) and
-        `inner` where it falls on already-drawn pixels (interior detail line)."""
+        `inner` where it falls on already-drawn pixels (interior detail line). A part with a
+        material is shaded later by shade(); anything painted over it afterwards stays flat."""
         if outline:
             ring = dilate(mask) & ~mask
             opaque = self.px[..., 3] > 0
             self.put(ring & opaque, inner)
             self.put(ring & ~opaque, OUT)
         self.put(mask, color)
-        shadow = np.zeros_like(mask)
-        if shade is not None:
-            shadow = mask & ~(look(mask, 1, 0) & look(mask, 0, depth))
-            self.put(shadow, shade)
-        if light is not None:
-            lit = mask & ~(look(mask, -1, 0) & look(mask, 0, -1)) & ~shadow
-            self.put(lit, light)
+        if mat is not None:
+            self.owner[mask] = len(self.forms)
+            self.forms.append((mask.copy(), mat, form))
+
+    def tag(self, mask, mat, form) -> None:
+        """Shade already-painted pixels as their own part (nothing is repainted)."""
+        self.owner[mask] = len(self.forms)
+        self.forms.append((mask.copy(), mat, form))
+
+    def claim(self, mask, color) -> None:
+        """Paint pixels as part of the last shaded part (they join its form and shading)."""
+        self.put(mask, color)
+        mask_, mat, form = self.forms[-1]
+        self.forms[-1] = (mask_ | mask, mat, form)
+        self.owner[mask] = len(self.forms) - 1
+
+    def mirror(self) -> None:
+        """Flip the frame horizontally, keeping the shading data aligned with it."""
+        self.px = np.ascontiguousarray(self.px[:, ::-1])
+        self.owner = np.ascontiguousarray(self.owner[:, ::-1])
+        self.forms = [(np.ascontiguousarray(m[:, ::-1]), mat, form) for m, mat, form in self.forms]
+
+    def shade(self) -> None:
+        """Apply the material ramps in the frame's final orientation (light top-left)."""
+        for k, (mask, mat, form) in enumerate(self.forms):
+            visible = self.owner == k
+            if not visible.any():
+                continue
+            dark, lit = RAMPS[mat]
+            lvl = form_level(mask, form, visible)
+            self.px[visible & (lvl < 0)] = (*dark, 255)
+            if lit is not None:
+                self.px[visible & (lvl > 0)] = (*lit, 255)
 
     def glyph(self, rows, x0, y0, cmap) -> None:
         for j, row in enumerate(rows):
@@ -300,9 +460,10 @@ def hand_mask(kind: str, x: float, y: float) -> np.ndarray:
 
 def draw_hand(c: "Canvas", kind: str, x: float, y: float) -> None:
     m = hand_mask(kind, x, y)
-    c.part(m, PINK, inner=OUT)
+    c.part(m, PINK, inner=OUT, mat="fur", form=("small",))
     ys, xs = np.where(m)
-    c.dot(xs.max(), ys.max() - (1 if kind == "hang" else 0), PINK_D)
+    c.claim(rect(xs.max(), ys.max() - (1 if kind == "hang" else 0), xs.max(), ys.max() - (1 if kind == "hang" else 0)),
+            PINK)                                       # the corner nub is part of the hand's shape
     if kind == "flower":
         cx, cy = int(math.floor(x + 0.5)), int(math.floor(y + 0.5))
         c.put(rect(cx - 1, cy - 1, cx, cy) & m, PLUM)
@@ -365,7 +526,7 @@ def draw_ear(c: Canvas, base, spec, flip_brown: bool) -> None:
     nx, ny = math.cos(f), math.sin(f)  # perpendicular to the flap direction
     s = -0.6 if flip_brown else 0.6
     inner = ellipse_rot(mid[0] + nx * s, mid[1] + ny * s, 0.95, fl / 2 * 0.72, fa)
-    c.put(inner & flap, BROWN)
+    c.part(inner & flap, BROWN, outline=False, mat="rust", form=("ramp",))
 
 
 def cross(cx: float, cy: float) -> np.ndarray:
@@ -378,7 +539,7 @@ def foot(cx: float, ay: float) -> np.ndarray:
     return rect(x - 2, y + 1, x + 2, y + 1) | rect(x, y, x, y + 2)
 
 
-def draw_character(p: Pose) -> np.ndarray:
+def draw_character(p: Pose, mirror: bool = False) -> np.ndarray:
     c = Canvas()
     gx, gy = p.gx, p.gy
 
@@ -407,7 +568,7 @@ def draw_character(p: Pose) -> np.ndarray:
                 xx, yy = int(round(tx)) + i, int(round(ty)) + j
                 if 0 <= xx < W and 0 <= yy < H:
                     star[yy, xx] = True
-    c.part(star, PINK)
+    c.part(star, PINK, mat="fur", form=("small",))
 
     # Wire legs with cross feet
     for k in range(2):
@@ -421,6 +582,7 @@ def draw_character(p: Pose) -> np.ndarray:
         knee = ik(hip, ankle, 3.3, 3.3, (-1, 0))
         pts = [hip, ankle] if knee is None else [hip, knee, ankle]
         c.part(wire(pts) | foot(*ankle), PINK)
+        c.tag(foot(*ankle), "fur", ("small",))         # 1 px legs stay flat; the feet are shaded
 
     ctx["hands"] = [Bd(*spec[0][-1]) for spec in p.arms]
 
@@ -445,7 +607,7 @@ def draw_character(p: Pose) -> np.ndarray:
     bean |= ellipse(*Hd(44.0, 23.3), 2.2, 2.3)          # cheek bump
     if scream:
         bean |= ellipse(*Hd(30.5, 45.5), 13.5, 11.0)    # dropped jaw
-    c.part(bean, PINK, shade=PINK_D, light=PINK_L)
+    c.part(bean, PINK, mat="fur", form=("dome", 6, None, Bd(0, 38)[1]))   # highlights: head ball, belly
 
     # Rear spots (one with a pink oval inside)
     inside = bean & look(bean, 1, 0) & look(bean, -1, 0) & look(bean, 0, 1) & look(bean, 0, -1)
@@ -509,7 +671,7 @@ def draw_character(p: Pose) -> np.ndarray:
             c.dot(*Hd(26, 35.5), LINE_PINK_D)
 
     # Snout tip with a dot and whiskers, then the huge wedge nose
-    c.part(ellipse(*Hd(9.3, 34 + p.nose_dy), 3.3, 3.0), PINK, shade=PINK_D, depth=1, inner=LINE_PINK)
+    c.part(ellipse(*Hd(9.3, 34 + p.nose_dy), 3.3, 3.0), PINK, inner=LINE_PINK, mat="fur", form=("dome", 2))
     c.dot(*Hd(9, 34 + p.nose_dy), OUT)
     c.put(wire([Hd(6, 32.5 + p.nose_dy), Hd(3.6, 31.4 + p.nose_dy)]), OUT)
     c.put(wire([Hd(6, 35.2 + p.nose_dy), Hd(3.6, 36.2 + p.nose_dy)]), OUT)
@@ -517,7 +679,7 @@ def draw_character(p: Pose) -> np.ndarray:
     c.part(nose, BLACK)
     nx0, ny0 = Hd(11.0, 31.2 + p.nose_dy)
     band = nose & (YY < ny0 + (XX - nx0) * 0.06) & look(nose, 0, -1) & (XX < nx0 + 13.5)
-    c.put(band, BROWN)
+    c.part(band, BROWN, outline=False, mat="rust", form=("ramp",))
 
     # Eyes: huge tall ovals, worried brows, lower-lid lines
     kinds = p.eyes if isinstance(p.eyes, tuple) else (p.eyes, p.eyes)
@@ -547,7 +709,7 @@ def draw_character(p: Pose) -> np.ndarray:
             c.put(rect(px0, py0, px0 + 1, py0 + 1) & em, BLACK)
         if kind == "squint":
             lid_y = int(round(cy_ - 0.5))
-            c.put(em & (YY < lid_y), PINK_D)
+            c.put(em & (YY < lid_y), FUR_S)
             c.put(em & (YY == lid_y), OUT)
     lift = p.brows + (2 if scream else 0)
     c.put(wire([Hd(21, 16.2 - lift), Hd(24, 14.6 - lift), Hd(27.6, 13.2 - lift)]), OUT)
@@ -564,7 +726,10 @@ def draw_character(p: Pose) -> np.ndarray:
     px = c.finish()
     for fn in p.fx:
         fn(px, ctx)
-    return px
+    if mirror:                     # right-facing rows: flip first, so the light stays top-left
+        c.mirror()
+    c.shade()
+    return c.px
 
 
 # ---------------------------------------------------------------------------
@@ -582,7 +747,7 @@ def clasp() -> Callable:
     """Compact clasped paws in front of the chest."""
     def fn(c: Canvas, ctx) -> None:
         cx, cy = ctx["Bd"](35.0, 39.6)
-        c.part(ellipse(cx, cy, 2.6, 1.9), PINK, shade=PINK_D, depth=1, inner=LINE_PINK)
+        c.part(ellipse(cx, cy, 2.6, 1.9), PINK, inner=LINE_PINK, mat="fur", form=("dome", 2))
         c.dot(cx, cy - 0.5, LINE_PINK)
     return fn
 
@@ -646,26 +811,6 @@ def dust(xs) -> Callable:
     return fn
 
 
-def laptop(frame: int) -> Callable:
-    """Little laptop on a stool, screen facing Agallas, code scrolling."""
-    def fn(c: Canvas, ctx) -> None:
-        # stool
-        c.part(rect(3, 53, 25, 54), WOOD, shade=WOOD_D, depth=1)
-        c.part(rect(5, 55, 6, 63) | rect(22, 55, 23, 63), WOOD_D)
-        # keyboard base and lid
-        c.part(rect(8, 51, 24, 52), GRAY, light=GRAY_L)
-        c.part(rect(5, 39, 16, 50), GRAY_D)
-        c.put(rect(6, 40, 15, 49), SCREEN)
-        for k, y in enumerate(range(41, 49, 2)):
-            n = 2 + ((frame + k * 2) % 6)
-            indent = (k % 2) * 2
-            c.put(rect(7 + indent, y, min(14, 7 + indent + n), y), CODE if k % 2 == 0 else CODE2)
-        if frame % 2 == 0:
-            c.put(rect(14, 47, 14, 48), WHITE)  # blinking cursor
-        c.put(rect(9, 51, 23, 51) & (XX % 2 == 0), GRAY_D)  # keys
-    return fn
-
-
 def key_spark(active: int) -> Callable:
     def fn(c: Canvas, ctx) -> None:
         hx, hy = ctx["hands"][active]
@@ -684,21 +829,21 @@ def magnifier(look_dx: int, look_dy: int = 0) -> Callable:
         eye_l = ellipse(*ctx["Hd"](LEFT_EYE[0], LEFT_EYE[1]), LEFT_EYE[2], LEFT_EYE[3])
         outside = dilate(eye_r) & ~dilate(eye_l) & ~ellipse(lx, ly, 7.2, 7.2) & (c.px[..., 3] > 0)
         c.put(outside, PINK)
-        c.put(outside & ~look(outside, 0, -1), PINK_D)      # soft shadow under the ring
+        c.put(outside & ~look(outside, 0, -1), FUR_S)       # soft shadow under the ring
         hand = ctx["Hd"](50.5, 22.0)                       # grip just outside the cheek
         start, tail = (lx + 6.0, ly + 1.2), (hand[0] + 2.8, hand[1] + 1.0)
         handle = capsule(start, tail, 0.9)
         c.put(wire2([ctx["Bd"](46.0, 35.0), (hand[0] + 0.5, hand[1] + 2.5)]), LINE_PINK_D)  # short arm
-        c.part(handle, BRASS, shade=BRASS_D, depth=1, inner=BRASS_D)
-        c.part(ellipse(lx, ly, 6.2, 6.2), GOLD, shade=GOLD_D, depth=1)
+        c.part(handle, BRASS, inner=BRASS_D, mat="brass", form=("dome", 1))
+        c.part(ellipse(lx, ly, 6.2, 6.2), GOLD, mat="gold", form=("dome", 4))
         c.put(ellipse(lx, ly, 5.0, 5.0), GLASS)
         eye = ellipse(lx, ly, 4.0, 4.4)
         c.part(eye, WHITE)
         px0 = int(round(lx - 1.0)) + look_dx
         py0 = int(round(ly - 1.0)) + look_dy
         c.put(rect(px0, py0, px0 + 2, py0 + 2) & eye, BLACK)
-        c.dot(lx - 3, ly - 4, WHITE)
-        c.dot(lx - 4, ly - 3, WHITE)
+        c.dot(lx - 3, ly - 4, GLINT)
+        c.dot(lx - 4, ly - 3, GLINT)
         # fingers over the handle: the hand is drawn on top, the handle shows in the notches
         hm = hand_mask("open", *hand)
         draw_hand(c, "open", *hand)
@@ -734,7 +879,7 @@ RUN_STEP = [(-4.0, 0.0), (-2.0, 0.0), (0.0, 0.0), (2.5, 0.6),
 RUN_BOB = [0, 1, 0, -1, 0, 1, 0, -1]
 
 
-def row_run_left():
+def row_run_left(mirror: bool = False):
     frames = []
     for i in range(8):
         b = RUN_BOB[i]
@@ -764,11 +909,11 @@ def row_run_left():
             gy=b, hdx=-1, eyes="wide", pupil=(-1, 0), mouth="grit",
             ears=((22, 4.5, 85 + flap, 11.5), (62, 5.5, 108 - flap, 11.5)),
             legs=tuple(legs), arms=arms, tail_dy=-b, extras=extras, fx=[speed_lines(i)]))
-    return [draw_character(p) for p in frames]
+    return [draw_character(p, mirror) for p in frames]
 
 
 def row_run_right():
-    return [np.ascontiguousarray(f[:, ::-1]) for f in row_run_left()]
+    return row_run_left(mirror=True)
 
 
 def row_waving():
@@ -843,7 +988,7 @@ def draw_scream(i: int) -> np.ndarray:
         t = math.radians(lean)
         nx, ny = -math.cos(t), -math.sin(t)  # towards the upper-left side of the blade
         inner = ellipse_rot(mx + nx * 0.6, my + ny * 0.6, minor * 0.55, half * 0.75, lean)
-        c.put(inner & blade, BROWN)
+        c.part(inner & blade, BROWN, outline=False, mat="rust", form=("ramp",))
 
     # Bristling ball: smooth around the face, jagged spikes on the lower/right edge
     pts = []
@@ -861,7 +1006,7 @@ def draw_scream(i: int) -> np.ndarray:
     ball = polygon(pts)
     ball |= ellipse(*P(30.0, 30.0), 12.0, 10.0)      # head around the eyes
     ball |= ellipse(*P(18.0, 37.5), 5.5, 3.6)        # snout bridge
-    c.part(ball, PINK, shade=PINK_D)
+    c.part(ball, PINK, mat="fur", form=("dome", 6, 0.5))    # light shadow: the ball stays bright
 
     # Huge red mouth toward the lower right
     mcx, mcy = P(29.5, 46.0)
@@ -875,13 +1020,14 @@ def draw_scream(i: int) -> np.ndarray:
         c.part(ellipse(*P(tx_, ty_), rx_, ry_), TEETH_Y)
 
     # Snout tip and the wedge nose on the left
-    c.part(ellipse(*P(12.6, 37.8), 3.1, 2.6), PINK, shade=PINK_D, depth=1)
+    c.part(ellipse(*P(12.6, 37.8), 3.1, 2.6), PINK, mat="fur", form=("dome", 2))
     c.dot(*P(11.6, 38.0), OUT)
     c.put(wire([P(9.6, 36.6), P(7.6, 35.6)]) | wire([P(9.6, 38.8), P(7.6, 39.8)]), OUT)
     nose = polygon([P(x, y) for x, y in ((13.6, 33.6), (20.0, 33.6), (24.6, 35.6), (19.6, 39.8),
                                           (16.0, 39.4), (13.6, 36.4))])
     c.part(nose, BLACK)
-    c.put(nose & (YY <= P(0, 35.0)[1]) & (XX < P(22.6, 0)[0]) & look(nose, 0, -1), BROWN)
+    c.part(nose & (YY <= P(0, 35.0)[1]) & (XX < P(22.6, 0)[0]) & look(nose, 0, -1), BROWN, outline=False,
+           mat="rust", form=("ramp",))
 
     # Huge eyes with tiny pupils
     for ex, ey, rx, ry, lean, (px, py) in ((22.4, 24.6, 4.8, 10.0, -10, (21.4, 21.6)),
@@ -927,7 +1073,9 @@ def draw_scream(i: int) -> np.ndarray:
     c.put(tongue, TONGUE_B)
     mid = samples[6:-4]
     c.put(wire(mid) & tongue, TONGUE_LINE)
-    return c.finish()
+    c.finish()
+    c.shade()
+    return c.px
 
 
 def row_failed():
@@ -953,16 +1101,16 @@ def computer(frame: int) -> Callable:
     The screen sits above the snout and the keyboard below it, so neither is hidden."""
     def fn(c: Canvas, ctx) -> None:
         # desk (top surface + legs)
-        c.part(rect(3, 51, 40, 52), WOOD, shade=WOOD_D, depth=1)
+        c.part(rect(3, 51, 40, 52), WOOD, mat="wood", form=("bevel", 1))
         c.part(rect(5, 54, 6, 63) | rect(35, 54, 36, 63), WOOD_D)
         # desktop case under the monitor
-        c.part(rect(3, 40, 18, 50), BEIGE, shade=BEIGE_D, light=WHITE, depth=1)
+        c.part(rect(3, 40, 18, 50), BEIGE, mat="beige", form=("bevel", 1))
         c.put(rect(5, 43, 10, 43), BEIGE_DD)
         c.put(rect(5, 46, 6, 47), BEIGE_DD)
         # CRT: bulky back on the left, screen face toward Courage on the right
         back = polygon([(3, 20), (9, 17), (9, 37), (3, 35)])
-        c.part(back, BEIGE_D, shade=BEIGE_DD, depth=1)
-        c.part(rect(8, 16, 17, 38), BEIGE, shade=BEIGE_D, light=WHITE, depth=1)
+        c.part(back, BEIGE_D, mat="side", form=("bevel", 1))
+        c.part(rect(8, 16, 17, 38), BEIGE, mat="beige", form=("bevel", 1))
         screen = rect(10, 18, 15, 30) & ~rect(10, 18, 10, 18) & ~rect(15, 30, 15, 30)
         c.put(screen, GLOW)
         for k, y in enumerate(range(20, 28, 2)):
@@ -970,10 +1118,10 @@ def computer(frame: int) -> Callable:
             c.put(rect(max(11, 14 - n), y, 14, y), GLOW_D)   # code lines, left-aligned once mirrored
         if frame % 2 == 0:
             c.put(rect(14, 28, 14, 29), WHITE)               # blinking cursor on the next line
-        c.put(rect(10, 18, 11, 19) & screen, WHITE)          # glare
+        c.put(rect(14, 18, 15, 19) & screen, GLINT)          # glare: top-left once mirrored, facing the light
         # keyboard in front of the case: top edge plus two staggered key rows under the hands
         kb = polygon([(12, 47), (33, 47), (34, 50), (11, 50)])
-        c.part(kb, BEIGE, shade=BEIGE_D, depth=1)
+        c.part(kb, BEIGE, mat="beige", form=("bevel", 1))
         keys = ((YY == 48) & (XX % 2 == 1)) | ((YY == 49) & (XX % 2 == 0))
         c.put(kb & keys & (XX > 11) & (XX < 34), BEIGE_DD)
     return fn
@@ -993,8 +1141,7 @@ def row_working():
             ears=((-5 + 3 * active, 4.0, 70, 10.0), (35, 4.0, 80 - 4 * active, 9.0)),
             arms=(([(36, 44), far_hand], "open", True), ([(26.5, 43), near_hand], "open", False)),
             pre=[computer(i)], extras=extras)
-        f = draw_character(pose)
-        frames.append(np.ascontiguousarray(f[:, ::-1]))   # face right, toward the monitor
+        frames.append(draw_character(pose, mirror=True))   # face right, toward the monitor
     return frames
 
 
