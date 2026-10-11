@@ -27,6 +27,8 @@ Creating or updating a pet follows the `petdex-pet` skill (`.claude/skills/petde
 automatically in this repo; other agents start from `AGENTS.md`. In short: design from reference images, two review
 passes (overview and zoomed detail), `tools/validate_pet.py` must pass, refresh previews, commit and tag.
 
+To start a new pet, open Claude Code in this repo and run `/new-pet <character> [from <show>] [pixel|cartoon|both]`, attaching reference images if you have them.
+
 ## Layout
 
 ```

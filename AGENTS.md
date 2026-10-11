@@ -10,6 +10,10 @@ Repo of Codex-format desktop pets (Orca, Codex, Petdex Desktop). See README.md f
 
 Read the skill before touching anything under `pets/`.
 
+## Commands
+
+- `/new-pet <character> [from <show>] [pixel|cartoon|both]` (`.claude/commands/new-pet.md`) — starts a new pet: gathers references and requirements, then follows the skill.
+
 ## Tools
 
 - `python3 -I tools/validate_pet.py [--compare OLD_SHEET] pets/<character>/<variant>` — format and content checks; must exit 0 before a commit.
