@@ -72,7 +72,7 @@ RED = (214, 44, 48)
 RED_D = (140, 22, 36)
 TONGUE = (240, 122, 142)
 UVULA = (168, 40, 72)
-FX = (206, 208, 214)           # light grey effect marks
+FX = (201, 201, 210)           # #C9C9D2 effect marks: no outline, no rim
 SWEAT = (124, 196, 255)
 SWEAT_L = (226, 246, 255)
 YELLOW = (255, 210, 64)
@@ -331,6 +331,7 @@ class Pose:
     nose_dy: int = 0
     pre: list = field(default_factory=list)     # drawn before the character
     extras: list = field(default_factory=list)  # drawn on top
+    fx: list = field(default_factory=list)      # effect marks drawn after outline + rim
 
 
 def blend_offset(y: float, top: float = 36.0, bottom: float = 46.0) -> float:
@@ -549,7 +550,10 @@ def draw_character(p: Pose) -> np.ndarray:
 
     for fn in p.extras:
         fn(c, ctx)
-    return c.finish()
+    px = c.finish()
+    for fn in p.fx:
+        fn(px, ctx)
+    return px
 
 
 # ---------------------------------------------------------------------------
@@ -607,11 +611,18 @@ def vibration(phase: int) -> Callable:
 
 
 def speed_lines(phase: int) -> Callable:
-    def fn(c: Canvas, ctx) -> None:
+    """Plain grey motion bars trailing behind the runner. Drawn on the finished frame
+    (Pose.fx), so they get no outline and no rim; each bar starts at least 2px behind
+    the silhouette (rim included) so it never fuses with it."""
+    def fn(px: np.ndarray, ctx) -> None:
+        solid = px[..., 3] > 0
         for k, y in enumerate((40, 46, 52)):
             length = 3 + ((phase + k * 3) % 4)
             x0 = 52 + ((phase + k) % 3)
-            c.put(rect(x0, y, x0 + length, y), FX)
+            filled = np.where(solid[y])[0]
+            if filled.size:
+                x0 = max(x0, int(filled.max()) + 2)
+            px[y, x0:min(x0 + length, W - 3) + 1] = (*FX, 255)
     return fn
 
 
@@ -652,7 +663,7 @@ def key_spark(active: int) -> Callable:
     return fn
 
 
-def magnifier(look_dx: int) -> Callable:
+def magnifier(look_dx: int, look_dy: int = 0) -> Callable:
     """Magnifying glass over the near eye, showing a huge scanning eye."""
     def fn(c: Canvas, ctx) -> None:
         lx, ly = ctx["Hd"](RIGHT_EYE[0], RIGHT_EYE[1] - 1)
@@ -673,7 +684,7 @@ def magnifier(look_dx: int) -> Callable:
         eye = ellipse(lx, ly, 4.0, 4.4)
         c.part(eye, WHITE)
         px0 = int(round(lx - 1.0)) + look_dx
-        py0 = int(round(ly - 1.0))
+        py0 = int(round(ly - 1.0)) + look_dy
         c.put(rect(px0, py0, px0 + 2, py0 + 2) & eye, BLACK)
         c.dot(lx - 3, ly - 4, WHITE)
         c.dot(lx - 4, ly - 3, WHITE)
@@ -693,13 +704,15 @@ def ear(spec, d_stalk=0.0, d_flap=0.0, k_stalk=1.0, k_flap=1.0):
 
 
 def row_idle():
-    breath = [0, 0, 1, 1, 0, 0]
+    # rest -> inhale (body up 1px) -> glance at the snout -> exhale -> blink -> glance back;
+    # every frame differs from its neighbours so the slow loop never stalls
+    breath = [0, -1, -1, 0, 0, 0]
     pupils = [(0, 0), (0, 0), (-1, 0), (-1, 0), (0, 0), (1, 0)]
-    twitch = [0, 0, 4, 4, 0, -3]
+    twitch = [0, 2, 4, 2, 0, -3]
     frames = []
     for i in range(6):
         frames.append(Pose(
-            hdy=breath[i], pupil=pupils[i], eyes="closed" if i == 4 else "open",
+            bdy=breath[i], pupil=pupils[i], eyes="closed" if i == 4 else "open",
             ears=(ear(EAR_L, d_flap=twitch[i]), ear(EAR_R, d_flap=-twitch[i])),
             tail_dy=1 if i in (2, 3) else 0))
     return [draw_character(p) for p in frames]
@@ -730,7 +743,7 @@ def row_run_left():
                 arms.append(([(28.0, 42.5), (fx, fy)], "open", False))
         arms = tuple(arms)
         flap = [0, 6, 10, 6, 0, -6, -10, -6][i]
-        extras = [speed_lines(i)]
+        extras = []
         if i in (0, 4):
             back = legs[1 if i == 0 else 0][0]
             extras.append(dust([max(legs[0][0], legs[1][0]) + 4]))
@@ -739,7 +752,7 @@ def row_run_left():
         frames.append(Pose(
             gy=b, hdx=-1, eyes="wide", pupil=(-1, 0), mouth="grit",
             ears=((22, 4.5, 85 + flap, 11.5), (62, 5.5, 108 - flap, 11.5)),
-            legs=tuple(legs), arms=arms, tail_dy=-b, extras=extras))
+            legs=tuple(legs), arms=arms, tail_dy=-b, extras=extras, fx=[speed_lines(i)]))
     return [draw_character(p) for p in frames]
 
 
@@ -924,50 +937,34 @@ def row_waiting():
     return [draw_character(p) for p in frames]
 
 
-COMPUTER_OX = 3
-
-
 def computer(frame: int) -> Callable:
-    """Chunky beige CRT on a desktop case, glowing teal screen, beige keyboard, desk."""
-    def fn(c0: Canvas, ctx) -> None:
-        c = Canvas()
-        # desk (top surface + front edge + leg)
-        c.part(rect(0, 47, 33, 48), WOOD, shade=WOOD_D, depth=1)
-        c.part(rect(2, 50, 3, 63) | rect(29, 50, 30, 63), WOOD_D)
-        # desktop case under the monitor
-        case = rect(1, 37, 19, 45)
-        c.part(case, BEIGE, shade=BEIGE_D, light=WHITE, depth=1)
-        c.put(rect(11, 40, 17, 40), BEIGE_DD)
-        c.put(rect(3, 42, 5, 43), BEIGE_DD)
-        # CRT: bulky back on the left, screen face on the right
-        back = polygon([(1, 19), (10, 15), (10, 35), (1, 32)])
-        c.part(back, BEIGE_D, shade=BEIGE_DD, depth=1)
-        bezel = rect(9, 14, 17, 36)
-        c.part(bezel, BEIGE, shade=BEIGE_D, light=WHITE, depth=1)
-        screen = rect(11, 16, 16, 32) & ~rect(11, 16, 11, 16) & ~rect(16, 32, 16, 32)
-        c.put(screen, GLOW)
-        for k, y in enumerate(range(18, 31, 2)):
-            n = 1 + ((frame + k * 3) % 4)
-            c.put(rect(12, y, min(15, 12 + n), y), GLOW_D)
-        c.put(rect(15, 16, 16, 17), WHITE)  # glare
-        # chunky keyboard
-        kb = polygon([(15, 44.5), (33, 44.5), (34, 46.5), (14, 46.5)])
-        c.part(kb, BEIGE, shade=BEIGE_D, depth=1)
-        c.put(kb & (YY == 45) & (XX % 2 == 1) & (XX > 15) & (XX < 33), BEIGE_DD)
-        # translate the whole prop layer right by COMPUTER_OX and lay it under the character
-        layer = np.roll(c.px, COMPUTER_OX, axis=1)
-        layer[:, :COMPUTER_OX] = 0
-        m = layer[..., 3] > 0
-        c0.px[m] = layer[m]
-    return fn
-
-
-def tick_burst(active: int) -> Callable:
+    """Chunky beige CRT on a desktop case, glowing cyan screen, beige keyboard, wooden desk.
+    The screen sits above the snout and the keyboard below it, so neither is hidden."""
     def fn(c: Canvas, ctx) -> None:
-        hx, hy = ctx["hands"][active]
-        x, y = int(round(hx)), int(round(hy)) - 4
-        c.put(rect(x, y - 2, x, y - 1) | wire([(x - 3, y - 1), (x - 2, y)]) | wire([(x + 3, y - 1), (x + 2, y)]),
-              YELLOW)
+        # desk (top surface + legs)
+        c.part(rect(3, 51, 40, 52), WOOD, shade=WOOD_D, depth=1)
+        c.part(rect(5, 54, 6, 63) | rect(35, 54, 36, 63), WOOD_D)
+        # desktop case under the monitor
+        c.part(rect(3, 40, 18, 50), BEIGE, shade=BEIGE_D, light=WHITE, depth=1)
+        c.put(rect(5, 43, 10, 43), BEIGE_DD)
+        c.put(rect(5, 46, 6, 47), BEIGE_DD)
+        # CRT: bulky back on the left, screen face toward Courage on the right
+        back = polygon([(3, 20), (9, 17), (9, 37), (3, 35)])
+        c.part(back, BEIGE_D, shade=BEIGE_DD, depth=1)
+        c.part(rect(8, 16, 17, 38), BEIGE, shade=BEIGE_D, light=WHITE, depth=1)
+        screen = rect(10, 18, 15, 30) & ~rect(10, 18, 10, 18) & ~rect(15, 30, 15, 30)
+        c.put(screen, GLOW)
+        for k, y in enumerate(range(20, 28, 2)):
+            n = 1 + ((frame + k * 3) % 4)
+            c.put(rect(max(11, 14 - n), y, 14, y), GLOW_D)   # code lines, left-aligned once mirrored
+        if frame % 2 == 0:
+            c.put(rect(14, 28, 14, 29), WHITE)               # blinking cursor on the next line
+        c.put(rect(10, 18, 11, 19) & screen, WHITE)          # glare
+        # keyboard in front of the case: top edge plus two staggered key rows under the hands
+        kb = polygon([(12, 47), (33, 47), (34, 50), (11, 50)])
+        c.part(kb, BEIGE, shade=BEIGE_D, depth=1)
+        keys = ((YY == 48) & (XX % 2 == 1)) | ((YY == 49) & (XX % 2 == 0))
+        c.put(kb & keys & (XX > 11) & (XX < 34), BEIGE_DD)
     return fn
 
 
@@ -975,15 +972,15 @@ def row_working():
     frames = []
     for i in range(6):
         active = i % 2
-        far_hand = (20.5, 43 if active == 0 else 44)
-        near_hand = (27.5, 43 if active == 1 else 44)
-        extras = [tick_burst(active)]
+        far_hand = (12.0, 44 if active == 0 else 45)       # the striking hand is lifted 1px
+        near_hand = (19.5, 44 if active == 1 else 45)
+        extras = []
         if i in (2, 3):
             extras.append(sweat(50, 14 + (i - 2)))
         pose = Pose(
-            gx=5, hdy=1, bdy=1, pupil=(-2, -1), mouth="grit", brows=1,
+            gx=7, hdx=1, hdy=0, bdy=1, pupil=(-2, 0), mouth="grit", brows=1,
             ears=((-5 + 3 * active, 4.0, 70, 10.0), (35, 4.0, 80 - 4 * active, 9.0)),
-            arms=(([(36, 44), far_hand], "open", True), ([(33, 42), near_hand], "open", False)),
+            arms=(([(36, 44), far_hand], "open", True), ([(26.5, 43), near_hand], "open", False)),
             pre=[computer(i)], extras=extras)
         f = draw_character(pose)
         frames.append(np.ascontiguousarray(f[:, ::-1]))   # face right, toward the monitor
@@ -992,13 +989,14 @@ def row_working():
 
 def row_review():
     scan = [-1, 0, 1, 1, 0, -1]
+    scan_dy = [0, 0, 0, 1, 0, 0]      # frame 3: the lens eye drops one step to the next line
     frames = []
     for i in range(6):
         frames.append(Pose(
             hdx=scan[i], eyes=("squint", "open"), pupil=(scan[i], 0),
             ears=(ear(EAR_L, d_flap=6), EAR_R),
             arms=(HANG_ARMS[0],),
-            extras=[magnifier(scan[i] * 2)]))
+            extras=[magnifier(scan[i] * 2, scan_dy[i])]))
     return [draw_character(p) for p in frames]
 
 
