@@ -21,6 +21,18 @@ Rules learned while drawing the Courage pets. Each one fixed a defect the user a
 - Pixel art: selective outlining. Black only on the outer silhouette and true dark features (pupils, nose, spots, ear flaps). Interior detail (mouth, arm edges, creases) uses a darker fur shade. Long black lines across the torso or face read as cuts or scratches.
 - Keep markings (spots) inside the silhouette so the outline stays continuous.
 
+## Shading (pixel art)
+
+- One light source (top-left) for every row and frame.
+- Three steps per material: base, shadow, highlight. Hue-shift them: shadows toward purple/blue and a bit more saturated, highlights toward warm/yellow and lighter. Never pure black shadows or pure white highlights (eye whites are a feature, not a highlight).
+- Shade by form, on the side away from the light. Avoid pillow shading (a uniform dark band along every edge).
+- Cartoon variants stay flat, like the show.
+
+## Antialiasing (pixel art)
+
+- Sprites of 64+ logical px may use selective, manual 1-px antialiasing on interior curves (eyes, head contour against the face) with one intermediate colour.
+- Never antialias the outer silhouette (the light rim needs a crisp edge) or tiny details.
+
 ## Hands and limbs
 
 - Hands are a character feature: compact cross/finger shapes with a black outline, legible at 1x. Every visible arm ends in a visible hand.
@@ -38,6 +50,14 @@ Rules learned while drawing the Courage pets. Each one fixed a defect the user a
 
 - Keep mouths on the jaw line under the snout, never floating on the cheek (a red block there reads as a wound).
 - Gritted teeth are a short, wide grimace with one divider and a few tooth lines; a long band with many dividers reads as a zipper.
+
+## Animation craft
+
+- Clients hold some frames longer: Codex/Orca idle holds frames 0 and 5 (1680/1920 ms), Petdex Desktop holds them too (280/320 ms vs 110–140). Put key poses on held frames.
+- Loops must be seamless: the last frame leads into the first.
+- In looping states every frame differs from its neighbour (the validator reports duplicates).
+- Run cycles alternate contact and passing poses with a 1-px body bob; jumps go crouch, ascend, hold at the peak, descend, land.
+- Shading, antialiasing and animation-craft ideas adapted from willibrandon/pixel-plugin (MIT).
 
 ## Animation rows
 

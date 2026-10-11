@@ -19,6 +19,7 @@ Codex pet format, as shipped in Orca's `codex-pet-sprite-defaults.js`.
 | 7 | running | 6 | 120 … last 220 |
 | 8 | review | 6 | 150 … last 280 |
 
+- Petdex Desktop uses the same rows but plays idle faster: 280, 110, 110, 140, 140, 320 ms.
 - `pet.json` has exactly `id`, `displayName`, `description`, `spritesheetPath`. Petdex trims `displayName` to 60 and `description` to 280 characters; the slug derives from `id`.
 - Discoverability: use the character's canonical English name in `displayName` and put localized names in `description` (search matches slug, name and description).
 
