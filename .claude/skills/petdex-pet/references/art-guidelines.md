@@ -12,7 +12,7 @@ Rules learned while drawing the Courage pets. Each one fixed a defect the user a
 ## Readability on dark backgrounds
 
 - Orca and many desktops are dark. Add a light outer rim (#FFF7F2, about 1.5–2 px in cartoon, 1 logical px in pixel art) behind the silhouette and props.
-- Draw effect marks (speed lines, tremble arcs, tick bursts) in mid-light grey (#C9C9D2) and leave them out of the rim.
+- Draw effect marks (speed lines, tremble arcs, tick bursts) in mid-light grey (#C9C9D2), with no outline, and leave them out of the rim; outlined and rimmed marks read as heavy white combs on dark backgrounds.
 - Check a few cells on #F5F5F5 and #1E202C every round.
 
 ## Line work
@@ -24,13 +24,15 @@ Rules learned while drawing the Courage pets. Each one fixed a defect the user a
 ## Hands and limbs
 
 - Hands are a character feature: compact cross/finger shapes with a black outline, legible at 1x. Every visible arm ends in a visible hand.
-- Arms are thin strokes in the darker fur shade. Raised or swinging arms start at the silhouette edge and must never cross the torso.
+- Pixel art: arms are thin strokes in the darker fur shade; raised or swinging arms start at the silhouette edge and must never cross the torso (thin lines over a same-colour body read as scratches).
+- Cartoon: an outlined arm may pass in front of the body when it clearly reads as a limb ending in a hand.
 - Clasped, typing and gripping hands must still read as hands (check at 3–4x), not blobs or tangles.
 
 ## Draw order and props
 
 - Draw foreground elements (tongue, held props) last, with only their own outline; nothing may cross them.
 - A magnifier lens must fully enclose the eye it magnifies; nothing of that eye may show outside the ring.
+- Keep props readable: the character must not cover the part of a prop that tells the story (screen, keys under the hands, lens).
 
 ## Mouths and teeth
 
