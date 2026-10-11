@@ -8,6 +8,7 @@ Rules learned while drawing the Courage pets. Each one fixed a defect the user a
 - Each round, render the reference next to frame 0 (`vs-reference.png`) and check the feature list one item at a time: silhouette, ears, nose/snout, eyes, mouth, limbs, hands/feet, tail, markings, palette.
 - Verify iconic expressions and colours against references before "correcting" them. Courage's scream has pale-yellow teeth, a brown wavy tongue with an orange outline and an orange "U" uvula; recolouring them pink/white made it less faithful.
 - Props come from the character's world (Courage types on a beige CRT, not a modern laptop).
+- When references disagree (official art vs fan art, palettes), the user's chosen reference wins. Do not "correct" an approved palette from measurements without asking. Courage's fur stays #E6A2AF by user choice, although official art measures lilac.
 
 ## Readability on dark backgrounds
 
