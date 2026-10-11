@@ -37,7 +37,7 @@ Create:
 2. Create `pets/<character>/<variant>/` with `pet.json` (`id` = Petdex slug) and `make_pet.py`, starting from an existing generator. Model one canonical view and mirror it for the other direction.
 3. Generate (output goes to a git-ignored `build/` or `out/`); copy the new `spritesheet.webp` into the variant folder, keeping its `pet.json`. Render the reference next to frame 0 and fix feature by feature.
 4. Double review pass, fix, repeat (about 4 rounds max).
-5. `python3 -I tools/validate_pet.py pets/<character>/<variant>` → exit 0, then `python3 -I tools/make_previews.py pets/<character>/<variant>`.
+5. `python3 -I tools/make_previews.py pets/<character>/<variant>`, then `python3 -I tools/validate_pet.py pets/<character>/<variant>` → exit 0 (it fails on stale previews).
 6. Copy the folder to `~/.codex/pets/<id>/` and `~/.petdex/pets/<id>/` to test; tell the user to re-import it in Orca.
 7. Commit, tag, add the README catalog row.
 
@@ -45,8 +45,8 @@ Update:
 1. Change only the targeted rows in `make_pet.py`; regenerate and copy the spritesheet in as in Create step 3.
 2. `python3 -I tools/validate_pet.py --compare <(git show <prev-tag>:pets/<character>/<variant>/spritesheet.webp) pets/<character>/<variant>` must list only the intended rows.
 3. Double review pass on the changed rows plus a full-sheet overview.
-4. Validate, refresh previews, commit, tag the next version, update the README status.
-5. Publish per the Decision Gates only when the user asks.
+4. Refresh previews, validate, commit, tag the next version, update the README status.
+5. Before publishing, point the user to the refreshed `preview/*.gif` and wait for an explicit go; then publish per the Decision Gates.
 
 ## Output Contract
 
