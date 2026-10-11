@@ -61,6 +61,7 @@ PINK_D = (198, 126, 145)
 PINK_L = (244, 196, 204)
 LINE_PINK = (185, 112, 127)    # #B9707F interior detail lines (never black inside the body)
 LINE_PINK_D = (169, 96, 111)   # #A9606F mouth / freckles
+JAW = (78, 34, 48)             # grimace jaw line: a true feature line, near the outline colour
 BRASS = (176, 122, 42)         # #B07A2A magnifier handle
 BRASS_D = (128, 86, 26)
 BLACK = (22, 16, 20)
@@ -318,6 +319,7 @@ class Pose:
     hdx: int = 0                 # head offset relative to body
     hdy: int = 0
     bdy: int = 0                 # torso offset (crouch / bob)
+    neck: tuple = (36.0, 46.0)   # rows over which the head offset fades into the body
     ears: tuple = (EAR_L, EAR_R)
     eyes: object = "open"        # open | wide | closed | squint, or (left, right)
     pupil: tuple = (0, 0)
@@ -332,6 +334,12 @@ class Pose:
     pre: list = field(default_factory=list)     # drawn before the character
     extras: list = field(default_factory=list)  # drawn on top
     fx: list = field(default_factory=list)      # effect marks drawn after outline + rim
+
+
+# The rear spots start at y 35 (body space) and do not follow the head offset. Rows whose head
+# offset changes between frames use this neck, so only the head moves and the torso, its
+# outline and its spots stay rigid; spots fixed under a moving outline look painted on.
+RIGID_TORSO_NECK = (30.0, 34.0)
 
 
 def blend_offset(y: float, top: float = 36.0, bottom: float = 46.0) -> float:
@@ -430,7 +438,7 @@ def draw_character(p: Pose) -> np.ndarray:
     # Jelly-bean head + body, muzzle and cheek bump
     pts = []
     for x, y in BEAN:
-        w = blend_offset(y)
+        w = blend_offset(y, *p.neck)
         pts.append((x + gx + p.hdx * w, y + gy + p.bdy + p.hdy * w))
     bean = polygon(pts)
     bean |= ellipse(*Hd(22.2, 32.6), 11.5, 7.2)        # snout bridge / muzzle
@@ -468,7 +476,7 @@ def draw_character(p: Pose) -> np.ndarray:
         c.part(tm, TONGUE)
         c.put(wire(tongue[1:4]) & tm, RED)
     elif p.mouth != "none":
-        if p.mouth in ("smile", "grit"):
+        if p.mouth == "smile":
             c.put(wire([Hd(x, y) for x, y in MOUTH_LINE]), LINE_PINK_D)
         if p.mouth == "open":
             om = polygon([Hd(x, y) for x, y in OPEN_MOUTH])
@@ -479,22 +487,25 @@ def draw_character(p: Pose) -> np.ndarray:
             low = om & ~look(om, 0, 1)
             c.put(low & ~top_edge & (XX > Hd(29.5, 0)[0]) & (XX < Hd(39.0, 0)[0]), TONGUE)
         elif p.mouth == "grit":
-            x0, y0 = Hd(36, 29)
-            x0, y0 = int(round(x0)), int(round(y0))
-            g = rect(x0, y0, x0 + 6, y0 + 4) & ~rect(x0, y0, x0, y0) & ~rect(x0 + 6, y0 + 4, x0 + 6, y0 + 4)
-            c.part(g, TEETH)
-            c.put(g & (YY == y0 + 2), OUT)
-            c.put(g & ((XX == x0 + 2) | (XX == x0 + 4)), OUT)
+            # One mouth: a dark jaw line runs from the end of the nose's underside back to a
+            # short, wide grimace at the mouth corner, right behind the snout. Teeth at the
+            # cheek, near the ear, read as a second mouth.
+            x0, y0 = (int(round(v)) for v in Hd(29, 34))
+            c.put(wire([Hd(22, 38), Hd(25, 38), Hd(28, 37)]), JAW)
+            g = rect(x0, y0, x0 + 6, y0 + 2)
+            c.part(g, TEETH, inner=JAW)
+            c.put(g & (YY == y0 + 1), JAW)                          # bite line
+            c.put(g & ((XX == x0 + 2) | (XX == x0 + 4)), JAW)       # tooth lines
         elif p.mouth == "o":
             om = ellipse(*Hd(25.5, 38.4), 2.4, 1.5)    # little yelp at the jaw, under the snout
             c.part(om, RED_D)
             c.put(om & ~look(om, 0, 1), TONGUE)
         # muzzle freckles and whisker
-        if p.mouth in ("smile", "grit"):
+        if p.mouth == "smile":
             for fx, fy in ((28, 35), (26, 37), (29, 37)):
                 c.dot(*Hd(fx, fy), LINE_PINK_D)
             c.put(wire([Hd(31, 36), Hd(34, 36.4)]), LINE_PINK_D)
-        else:
+        elif p.mouth != "grit":
             c.dot(*Hd(26, 35.5), LINE_PINK_D)
 
     # Snout tip with a dot and whiskers, then the huge wedge nose
@@ -775,7 +786,7 @@ def row_waving():
 
 def row_jumping():
     frames = [
-        Pose(hdy=1, bdy=2, eyes="wide", mouth="grit",
+        Pose(hdy=1, bdy=2, neck=RIGID_TORSO_NECK, eyes="wide", mouth="grit",
              ears=((-40, 4.0, -100, 12.0), (60, 5.5, 118, 12.0)),
              arms=(([(31, 41.5), (31, 45)], "hang", False), ([(38, 42), (38, 45.5)], "hang", False))),
         Pose(gy=-3, legs_air=True, eyes="wide", mouth="o",
@@ -789,7 +800,7 @@ def row_jumping():
         Pose(gy=-2, legs_air=True, eyes="wide", mouth="o",
              ears=((-28, 3.5, -60, 8.5), (38, 3.5, 62, 8.5)),
              arms=(([(27, 44.5), (17.5, 45)], "open", False), ([(46.6, 41), (52, 35)], "open", False))),
-        Pose(hdy=1, bdy=1, mouth="grit",
+        Pose(hdy=1, bdy=1, neck=RIGID_TORSO_NECK, mouth="grit",
              ears=(ear(EAR_L, d_flap=-10), ear(EAR_R, d_flap=12)),
              extras=[dust([21, 46])]),
     ]
@@ -993,7 +1004,7 @@ def row_review():
     frames = []
     for i in range(6):
         frames.append(Pose(
-            hdx=scan[i], eyes=("squint", "open"), pupil=(scan[i], 0),
+            hdx=scan[i], neck=RIGID_TORSO_NECK, eyes=("squint", "open"), pupil=(scan[i], 0),
             ears=(ear(EAR_L, d_flap=6), EAR_R),
             arms=(HANG_ARMS[0],),
             extras=[magnifier(scan[i] * 2, scan_dy[i])]))
