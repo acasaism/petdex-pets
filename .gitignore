@@ -9,6 +9,7 @@ pets/**/*-check.png
 pets/**/vs-reference*.png
 pets/**/*before-after.png
 pets/**/zoom*.png
+pets/**/review/
 __pycache__/
 
 # Committed previews rendered by tools/make_previews.py from the committed spritesheet
