@@ -23,5 +23,5 @@ Read the skill before touching anything under `pets/`.
 ## Conventions
 
 - One folder per variant: `pets/<character>/<variant>/` with `pet.json` (id = Petdex slug), `spritesheet.webp`, `make_pet.py`, `preview/`.
-- Tags: `<character>-<variant>-vN`. Conventional Commits.
+- Tags: `<character>-<variant>-vN`. Conventional Commits. Tags created before the move to `pets/` use the old layout (`agallas/`, `agallas-cartoon/`, `submission/`).
 - Reference art and generator outputs stay out of git.
