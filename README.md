@@ -85,8 +85,15 @@ Tags created before the move to `pets/` use the old layout (`agallas/`, `agallas
 ## Contributing
 
 Issues and pull requests are welcome: fixes to a sprite, new pets or variants, tooling improvements.
-Start from `AGENTS.md` and the `petdex-pet` skill; `python3 -I tools/validate_pet.py pets/<character>/<variant>` must exit 0.
-Use Conventional Commits.
+
+1. Install the dependencies: `pip install -r requirements.txt` (`pycairo` needs the Cairo system library and headers).
+2. Edit the variant's `make_pet.py` and regenerate it (see [Regenerate](#regenerate)); copy the new `spritesheet.webp` over the committed one.
+3. Validate: `python3 -I tools/validate_pet.py pets/<character>/<variant>` must exit 0.
+4. Refresh the previews: `python3 -I tools/make_previews.py pets/<character>/<variant>`.
+5. Open a pull request with the preview GIFs of what changed, using Conventional Commits.
+
+New pets follow `AGENTS.md` and the `petdex-pet` skill (`.claude/skills/petdex-pet/`).
+Reference art is not committed, so mention in the PR where yours comes from.
 
 ## Rights
 
