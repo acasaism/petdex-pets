@@ -82,7 +82,13 @@ A pending submission can be withdrawn from the web profile ("Retirar envío") an
 Tags are `<character>-<variant>-vN`, e.g. `courage-cartoon-v4`, `courage-pixel-v3`.
 Tags created before the move to `pets/` use the old layout (`agallas/`, `agallas-cartoon/`, `submission/`).
 
+## Contributing
+
+Issues and pull requests are welcome: fixes to a sprite, new pets or variants, tooling improvements.
+Start from `AGENTS.md` and the `petdex-pet` skill; `python3 -I tools/validate_pet.py pets/<character>/<variant>` must exit 0.
+Use Conventional Commits.
+
 ## Rights
 
 Fan art. Courage the Cowardly Dog is a Cartoon Network character; no rights to the character are claimed.
-The artwork is published on Petdex under CC BY-NC.
+The artwork is published on Petdex under CC BY-NC. The code (generators and tools) is MIT, see `LICENSE`.

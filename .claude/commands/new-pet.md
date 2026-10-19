@@ -12,6 +12,6 @@ Create a new pet for: $ARGUMENTS
    - reference images: use the ones attached to this conversation; otherwise propose a source (for example the show's wiki) and download into the git-ignored `pets/<character>/refs/` (props in `refs/props/`, origins in `SOURCES.txt`);
    - the character's signature look per state where it matters: `failed` (panic), `running` (how they work), `review` (inspecting), `waiting` (asking);
    - whether it will be published: display name and licence (fan art: `cc-by-nc` or `all-rights-reserved`).
-3. Create a branch and an ODD feature document with one task per variant. When several characters are requested, handle them one at a time and get approval for each before starting the next.
+3. Create a branch with one task per variant. When several characters are requested, handle them one at a time and get approval for each before starting the next.
 4. After the first draft of each variant, run `tools/review_sheets.py --refs pets/<character>/refs pets/<character>/<variant>`, fill the checklist, and show the user `vs-reference.png` and the preview GIFs; iterate on their feedback.
 5. Never publish without the user's explicit go.

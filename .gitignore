@@ -16,3 +16,6 @@ __pycache__/
 !pets/*/*/preview/
 !pets/*/*/preview/*.gif
 !pets/*/*/preview/sheet.png
+
+# Local agent tooling (skill registry)
+.atl/
