@@ -9,6 +9,7 @@ Drawn procedurally with Python (Pillow / pycairo) together with Claude Code.
 |---|---|---|---|
 | Courage the Cowardly Dog | `pets/courage/cartoon/` | `courage-the-cowardly-dog` | Approved (v4) |
 | Courage the Cowardly Dog (Pixel) | `pets/courage/pixel/` | `courage-the-cowardly-dog-pixel` | Approved (v4.2); v6 edit submitted 2026-10-11, queued for admin review |
+| Chowder | `pets/chowder/cartoon/` | `chowder` | Not published (v1) |
 
 Track submissions at https://petdex.dev/u/acasaism.
 
@@ -16,8 +17,9 @@ Track submissions at https://petdex.dev/u/acasaism.
 
 | | idle | failed | running (work) | review |
 |---|---|---|---|---|
-| Cartoon | ![](pets/courage/cartoon/preview/idle.gif) | ![](pets/courage/cartoon/preview/failed.gif) | ![](pets/courage/cartoon/preview/running.gif) | ![](pets/courage/cartoon/preview/review.gif) |
-| Pixel | ![](pets/courage/pixel/preview/idle.gif) | ![](pets/courage/pixel/preview/failed.gif) | ![](pets/courage/pixel/preview/running.gif) | ![](pets/courage/pixel/preview/review.gif) |
+| Courage (cartoon) | ![](pets/courage/cartoon/preview/idle.gif) | ![](pets/courage/cartoon/preview/failed.gif) | ![](pets/courage/cartoon/preview/running.gif) | ![](pets/courage/cartoon/preview/review.gif) |
+| Courage (pixel) | ![](pets/courage/pixel/preview/idle.gif) | ![](pets/courage/pixel/preview/failed.gif) | ![](pets/courage/pixel/preview/running.gif) | ![](pets/courage/pixel/preview/review.gif) |
+| Chowder (cartoon) | ![](pets/chowder/cartoon/preview/idle.gif) | ![](pets/chowder/cartoon/preview/failed.gif) | ![](pets/chowder/cartoon/preview/running.gif) | ![](pets/chowder/cartoon/preview/review.gif) |
 
 Every state is in `pets/<character>/<variant>/preview/` (one GIF per state plus `sheet.png`).
 
@@ -33,5 +35,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Rights
 
-Fan art. Courage the Cowardly Dog is a Cartoon Network character; no rights to the character are claimed.
+Fan art. Courage the Cowardly Dog and Chowder are Cartoon Network characters; no rights to the characters are claimed.
 The artwork is published on Petdex under CC BY-NC. The code (generators and tools) is MIT, see `LICENSE`.
