@@ -10,6 +10,7 @@ Drawn procedurally with Python (Pillow / pycairo) together with Claude Code.
 | Courage the Cowardly Dog | `pets/courage/cartoon/` | `courage-the-cowardly-dog` | Approved (v4) |
 | Courage the Cowardly Dog (Pixel) | `pets/courage/pixel/` | `courage-the-cowardly-dog-pixel` | Approved (v4.2); v6 edit submitted 2026-10-11, queued for admin review |
 | Chowder | `pets/chowder/cartoon/` | `chowder` | Not published (v1) |
+| Chowder (Pixel) | `pets/chowder/pixel/` | `chowder-pixel` | Not published (v1) |
 
 Track submissions at https://petdex.dev/u/acasaism.
 
@@ -20,6 +21,7 @@ Track submissions at https://petdex.dev/u/acasaism.
 | Courage (cartoon) | ![](pets/courage/cartoon/preview/idle.gif) | ![](pets/courage/cartoon/preview/failed.gif) | ![](pets/courage/cartoon/preview/running.gif) | ![](pets/courage/cartoon/preview/review.gif) |
 | Courage (pixel) | ![](pets/courage/pixel/preview/idle.gif) | ![](pets/courage/pixel/preview/failed.gif) | ![](pets/courage/pixel/preview/running.gif) | ![](pets/courage/pixel/preview/review.gif) |
 | Chowder (cartoon) | ![](pets/chowder/cartoon/preview/idle.gif) | ![](pets/chowder/cartoon/preview/failed.gif) | ![](pets/chowder/cartoon/preview/running.gif) | ![](pets/chowder/cartoon/preview/review.gif) |
+| Chowder (pixel) | ![](pets/chowder/pixel/preview/idle.gif) | ![](pets/chowder/pixel/preview/failed.gif) | ![](pets/chowder/pixel/preview/running.gif) | ![](pets/chowder/pixel/preview/review.gif) |
 
 Every state is in `pets/<character>/<variant>/preview/` (one GIF per state plus `sheet.png`).
 
