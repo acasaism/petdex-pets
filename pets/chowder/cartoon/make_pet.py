@@ -9,11 +9,13 @@ with pycairo at 4x, given a dark outer contour and a light rim, and downscaled w
 is a short gag (see each row_*() docstring): squash and stretch, follow-through on the hat and jowl, takes.
 
 Usage:
-    python3 -I make_pet.py   # renders out/spritesheet.webp and copies it next to pet.json
+    python3 -I make_pet.py   # runs the frame checks (check_frames), renders out/spritesheet.webp and copies it
+                             # next to pet.json; a pose that breaks a rule stops the build first
 
 Rig API (reused by the pixel variant):
     load_parts() -> {name: Part}: traced paths in model units, colours by class name (keys of CLASS_RGB).
-    Look(colours, ink, ink_add): pass false colours per class and ink_add=0 to render a class map.
+    Look(colours, ink, ink_add, parts): pass false colours per class and ink_add=0 to render a class map;
+        parts overrides the look per part name (the frame checks' part map, see part_look()).
     row_*() -> [Pose]: the poses of every row (running-left = mirrored running-right).
     draw_character(ctx, pose, look): one pose in cell space (192x208) on any cairo context; it keeps the
         caller's antialias setting. Strokes (ink_add, the jowl line, props, lids, wheel) use a round pen in
@@ -34,7 +36,7 @@ import os
 import runpy
 import shutil
 import zlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import cairo
@@ -93,6 +95,7 @@ class Look:
     colours: Dict[str, RGB]
     ink: RGB
     ink_add: float = 0.9      # traced ink thickened by this stroke (cell px): the show reads bold at pet size
+    parts: Dict[str, "Look"] = field(default_factory=dict)    # per-part overrides (the frame checks' part map)
 
 
 LOOK = Look(CLASS_RGB, INK)
@@ -189,6 +192,7 @@ def ink_part(ctx: cairo.Context, p: Part, look: Look) -> None:
 
 
 def draw_part(ctx: cairo.Context, name: str, look: Look, m: Optional[cairo.Matrix] = None) -> None:
+    look = look.parts.get(name, look)
     ctx.save()
     if m is not None:
         ctx.transform(m)
@@ -590,6 +594,7 @@ def jowl_line(ctx: cairo.Context, look: Look) -> None:
 
 
 def draw_hat(ctx: cairo.Context, p: Pose, look: Look) -> None:
+    look = look.parts.get("hat", look)
     fn = hat_warp(p)
     h = part("hat")
     warp = lambda subs: [(cmds, fn(pts)) for cmds, pts in subs]
@@ -1368,11 +1373,11 @@ def row_review() -> List[Pose]:
 # ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
-def paint(draw: Callable[[cairo.Context], None]) -> np.ndarray:
+def paint(draw: Callable[[cairo.Context], None], antialias: int = cairo.ANTIALIAS_BEST) -> np.ndarray:
     surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, CELL_W * SS, CELL_H * SS)
     ctx = cairo.Context(surf)
     ctx.scale(SS, SS)
-    ctx.set_antialias(cairo.ANTIALIAS_BEST)
+    ctx.set_antialias(antialias)
     draw(ctx)
     surf.flush()
     # cairo ARGB32 = premultiplied BGRA (little endian); "BGRa" unpremultiplies.
@@ -1411,11 +1416,11 @@ def solid(colour: Sequence[float], alpha: np.ndarray) -> np.ndarray:
     return out
 
 
-def render(p: Pose) -> Image.Image:
-    fig = paint(lambda c: draw_character(c, p))
+def render(p: Pose, look: Look = LOOK, rim: bool = True) -> Image.Image:
+    fig = paint(lambda c: draw_character(c, p, look))
     contour = dilate(fig[..., 3], OUTER * SS)
-    rim = dilate(contour, RIM_R * SS) * RIM_ALPHA
-    out = over(over(solid([c / 255 for c in RIM_RGB], rim), solid(INK, contour)), fig)
+    halo = dilate(contour, RIM_R * SS) * RIM_ALPHA if rim else np.zeros_like(contour)
+    out = over(over(solid([c / 255 for c in RIM_RGB], halo), solid(INK, contour)), fig)
     if p.fx_back:
         out = over(paint(lambda c: [fn(c) for fn in p.fx_back]), out)
     if p.fx:
@@ -1426,28 +1431,325 @@ def render(p: Pose) -> Image.Image:
     return Image.fromarray(arr)
 
 
-def build_frames() -> List[List[Image.Image]]:
-    run_right = [render(p) for p in row_run_right()]
-    rows = [
-        [render(p) for p in row_idle()],
-        run_right,
-        [ImageOps.mirror(im) for im in run_right],
-        [render(p) for p in row_waving()],
-        [render(p) for p in row_jumping()],
-        [render(p) for p in row_failed()],
-        [render(p) for p in row_waiting()],
-        [render(p) for p in row_work()],
-        [render(p) for p in row_review()],
-    ]
-    for (name, count), frames in zip(ROW_SPEC, rows):
+def row_poses() -> List[List[Pose]]:
+    """Every row's poses in atlas order; running-left reuses running-right (render mirrors it)."""
+    run = row_run_right()
+    return [row_idle(), run, run, row_waving(), row_jumping(), row_failed(), row_waiting(), row_work(),
+            row_review()]
+
+
+def build_frames(rows: List[List[Pose]]) -> List[List[Image.Image]]:
+    out: List[List[Image.Image]] = []
+    for (name, count), poses in zip(ROW_SPEC, rows):
+        mirrored = name == "running-left"
+        frames = [ImageOps.mirror(im) for im in out[1]] if mirrored else [render(p) for p in poses]
         assert len(frames) == count, (name, len(frames))
-    return rows
+        out.append(frames)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Frame checks (S7): measurable pose rules; any violation stops the build before the sheet is written
+# ---------------------------------------------------------------------------
+# Each frame is rendered once more through draw_character with a false colour per part or class (the part
+# map, without antialiasing so no edge blends into another class's colour), once ink-only through render(),
+# and its effect marks alone; the rules read 1x masks off those.
+HALF = 128 / 255        # survives 8 bits exactly, so part-map colours compare exactly
+PM: Dict[str, RGB] = {"face": (1, 0, 0), "hat": (0, 1, 0), "hand": (0, 0, 1), "sleeve": (1, 1, 0),
+                      "robe": (1, 0, 1), "fang": (0, 1, 1), "teeth": (1, HALF, 0), "mouth": (HALF, 0, 0),
+                      "prop": (0, HALF, 0), "pot": (0, 0, HALF), "other": (HALF, HALF, HALF)}
+OPEN_MOUTHS = ("open", "o", "sip", "scream", "panic")
+INK_DARK = 70           # a 1x pixel at or under this luma reads as ink (calibrated on the round-3 jowl gap)
+EXPOSED_MAX = 1.0       # cell px^2 of head bared under the brim: brim notches give <= 0.5, a lifted hat 60+
+PROP_TOL = 1.0          # cell px
+PALM, THUMB = (0.0, 120.0), (-120.0, 115.0)    # in the open hand (hand_open): palm centre and thumb tip
+
+
+def _look(colour: RGB, **classes: RGB) -> Look:
+    return Look({k: classes.get(k, colour) for k in CLASS_RGB}, INK)
+
+
+def part_look() -> Look:
+    o = PM["other"]
+    look = _look(o, mouth=PM["mouth"], tongue=PM["mouth"], wood=PM["prop"], pot=PM["pot"], pot_l=PM["pot"],
+                 pot_in=PM["pot"], stew=PM["pot"])
+    flat = {"face": "face", "body": "robe", "sleeve_n": "sleeve", "hat": "hat", "hand_n": "hand",
+            "hand_open": "hand", "hand_fist": "hand", "hand_bowl": "hand"}
+    look.parts = {n: _look(PM[k]) for n, k in flat.items()}
+    look.parts["fang"] = _look(PM["face"], white=PM["fang"])          # the tooth; its trim of skin is face
+    for n in ("mouth", "mouth_open", "mouth_scream", "mouth_scream04"):     # donor mouths: lip skin is face
+        look.parts[n] = _look(o, mouth=PM["mouth"], tongue=PM["mouth"], white=PM["teeth"], skin=PM["face"])
+    return look
+
+
+def _down(a: np.ndarray) -> np.ndarray:
+    """Hi-res (SS) array to 1x coverage."""
+    return a.reshape(CELL_H, SS, CELL_W, SS).mean(axis=(1, 3))
+
+
+def _grow(m: np.ndarray, r: int = 1) -> np.ndarray:
+    """Binary dilation by a (2r+1)^2 square."""
+    pad, out = np.pad(m, r), m.copy()
+    for dy in range(2 * r + 1):
+        for dx in range(2 * r + 1):
+            out |= pad[dy:dy + m.shape[0], dx:dx + m.shape[1]]
+    return out
+
+
+def _fill_holes(m: np.ndarray) -> np.ndarray:
+    """m plus every region of ~m that the cell border cannot reach (4-connected)."""
+    out = np.zeros_like(m)
+    out[0, :] = out[-1, :] = out[:, 0] = out[:, -1] = True
+    out &= ~m
+    while True:
+        nxt = out.copy()
+        nxt[1:] |= out[:-1]
+        nxt[:-1] |= out[1:]
+        nxt[:, 1:] |= out[:, :-1]
+        nxt[:, :-1] |= out[:, 1:]
+        nxt &= ~m
+        if (nxt == out).all():
+            return ~out
+        out = nxt
+
+
+def _blobs(m: np.ndarray, min_px: int = 1) -> List[np.ndarray]:
+    """8-connected components of m with at least min_px pixels, as (n, 2) arrays of (y, x)."""
+    seen, out = np.zeros_like(m), []
+    for y0, x0 in zip(*np.nonzero(m)):
+        if seen[y0, x0]:
+            continue
+        seen[y0, x0] = True
+        stack, comp = [(y0, x0)], []
+        while stack:
+            y, x = stack.pop()
+            comp.append((y, x))
+            for yy in range(max(y - 1, 0), min(y + 2, m.shape[0])):
+                for xx in range(max(x - 1, 0), min(x + 2, m.shape[1])):
+                    if m[yy, xx] and not seen[yy, xx]:
+                        seen[yy, xx] = True
+                        stack.append((yy, xx))
+        if len(comp) >= min_px:
+            out.append(np.array(comp))
+    return out
+
+
+@dataclass
+class Frame:
+    """What the rules read for one pose: hi-res part masks, their 1x coverage, the ink-only luma at 1x."""
+    pose: Pose
+    hi: Dict[str, np.ndarray]
+    cov: Dict[str, np.ndarray]
+    ink: np.ndarray
+
+    def m(self, name: str) -> np.ndarray:
+        return self.cov[name] >= 0.5
+
+
+def part_map(draw: Callable[[cairo.Context], None]) -> Dict[str, np.ndarray]:
+    """Hi-res mask per part-map colour of an unantialiased drawing."""
+    img = paint(draw, cairo.ANTIALIAS_NONE)
+    key = lambda rgb: rgb[..., 0] << 16 | rgb[..., 1] << 8 | rgb[..., 2]
+    got = np.where(img[..., 3] > 0.99, key(np.round(img[..., :3] * 255).astype(np.int32)), -1)
+    return {k: got == key(np.round(np.array(v) * 255).astype(np.int32)) for k, v in PM.items()}
+
+
+INK_LOOK = Look({k: (1.0, 1.0, 1.0) for k in CLASS_RGB}, (0.0, 0.0, 0.0))     # white fills, black ink
+
+
+def frame(p: Pose) -> Frame:
+    q = replace(p, fx=[], fx_back=[])
+    hi = part_map(lambda c: draw_character(c, q, PART_LOOK))
+    ink = np.asarray(render(q, INK_LOOK, rim=False)).astype(float)
+    a = ink[..., 3:] / 255
+    luma = ((ink[..., :3] * a + 255 * (1 - a)) * (0.299, 0.587, 0.114)).sum(axis=-1)
+    return Frame(p, hi, {k: _down(v) for k, v in hi.items()}, luma)
+
+
+def _face_space_mask(draw: Callable[[cairo.Context], None]) -> np.ndarray:
+    """Face space at 2 units per pixel (x -100..1300, y -300..1100), for the hat rule."""
+    surf = cairo.ImageSurface(cairo.FORMAT_A8, 700, 700)
+    ctx = cairo.Context(surf)
+    ctx.scale(0.5, 0.5)
+    ctx.translate(100, 300)
+    ctx.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
+    draw(ctx)
+    surf.flush()
+    return np.ndarray((700, surf.get_stride()), np.uint8, surf.get_data())[:, :700] > 127
+
+
+def _hat_mask(fn: Optional[Callable[[np.ndarray], np.ndarray]]) -> np.ndarray:
+    def draw(ctx: cairo.Context) -> None:
+        add_subs(ctx, [(cmds, fn(pts) if fn else pts) for cmds, pts in part("hat").sil])
+        ctx.fill()
+    return _face_space_mask(draw)
+
+
+def _head_mask(ctx: cairo.Context) -> None:
+    dome(ctx)
+    ctx.fill()
+    below_brim(ctx)
+    ctx.clip()
+    add_subs(ctx, part("face").sil)
+    ctx.fill()
+
+
+HEAD_AT_REST: Dict[str, np.ndarray] = {}
+
+
+def exposed(p: Pose) -> float:
+    """Head area (cell px^2) that the posed hat bares beyond 1 cell px from what shows at rest."""
+    if not HEAD_AT_REST:
+        head, hat = _face_space_mask(_head_mask), _hat_mask(None)
+        HEAD_AT_REST.update(head=head, hat=hat, seen=_grow(head & ~hat, 5))
+    r = HEAD_AT_REST
+    return float((r["head"] & r["hat"] & ~_hat_mask(hat_warp(p)) & ~r["seen"]).sum()) * (2 * S) ** 2
+
+
+def pot_mask(p: Pose) -> np.ndarray:
+    """1x mask of the pot (the props drawn in p.mid, in the part map)."""
+    def mid(ctx: cairo.Context) -> None:
+        ctx.transform(mul(pose_matrix(p), lean_matrix(p)))
+        for fn in p.mid:
+            fn(ctx, PART_LOOK)
+    return _down(part_map(mid)["pot"]) >= 0.5
+
+
+def rule_fang(f: Frame) -> Optional[str]:
+    # an open mouth keeps its fang and teeth inside the lip line (L15: the panic fang hung above the mouth)
+    if f.pose.mouth not in OPEN_MOUTHS:
+        return None
+    out = (f.m("fang") | f.m("teeth")) & ~_fill_holes(_grow(f.m("mouth"), 3))     # 3 px: lip and fang lines
+    return f"{out.sum()} px of fang or teeth outside the open mouth" if out.any() else None
+
+
+def rule_hat(f: Frame) -> Optional[str]:
+    # a lifted or bent-away hat bares the head under the brim, which reads as an empty head (L22)
+    if f.pose.hat_dy < 0:
+        return f"hat_dy={f.pose.hat_dy:g} lifts the hat off the head"
+    area = exposed(f.pose)
+    return f"{area:.1f} px^2 of head bared under the brim" if area > EXPOSED_MAX else None
+
+
+def rule_outline(f: Frame) -> Optional[str]:
+    # every edge of the visible face (jowl) and hat carries ink; a front part brings its own (L22: jowl gap)
+    inked, bad = _grow(f.ink <= INK_DARK, 2), []
+    for name in ("face", "hat"):
+        v = _fill_holes(f.m(name))
+        bad += [f"{name} at ({int(b[:, 1].mean())}, {int(b[:, 0].mean())})"
+                for b in _blobs(v & _grow(~v) & ~inked, 3)]
+    return "outline without ink: " + ", ".join(bad) if bad else None
+
+
+def rule_wave(f: Frame) -> Optional[str]:
+    # the waving hand is up above the shoulder, palm out, thumb toward the head (L15: it read upside down)
+    p = f.pose
+    (px, py), (tx, ty) = (hand_point(p, p.far, True, q) for q in (PALM, THUMB))
+    if py >= to_cell(p, *(p.far.root or SH_F))[1]:
+        return "waving hand below the shoulder"
+    hx, hy = to_cell(p, 650.0, 700.0, head=True)
+    if math.hypot(tx - hx, ty - hy) >= math.hypot(px - hx, py - hy):
+        return "waving thumb points away from the head"
+    return None
+
+
+def rule_pot(f: Frame) -> Optional[str]:
+    # only the hand and the ladle may cross the pot (L15: the robe and the sleeve cut through its rim)
+    over_pot = pot_mask(f.pose) & (f.m("sleeve") | f.m("robe"))
+    return f"{over_pot.sum()} px of sleeve or robe over the pot" if over_pot.any() else None
+
+
+def rule_hands(f: Frame) -> Optional[str]:
+    # every visible hand hangs from its sleeve (L15: the fork hand floated off a stub sleeve)
+    p, held = f.pose, f.m("sleeve")
+    if p.near_behind or (p.far is not None and not p.far_front):
+        held = held | f.m("face") | f.m("hat") | f.m("robe")    # an arm behind them reaches its hand unseen
+    held = _grow(held, 3)                                       # 3 px: the hand's and the sleeve's outlines
+    fingers = f.m("hand")
+    loose = [b for b in _blobs(_grow(fingers), 4) if not (held & fingers)[b[:, 0], b[:, 1]].any()]
+    return (f"hand without a sleeve at ({int(loose[0][:, 1].mean())}, {int(loose[0][:, 0].mean())})"
+            if loose else None)
+
+
+def rule_fx(f: Frame) -> Optional[str]:
+    # effect marks are unoutlined grey: over an ink line they erase it (L26: the steam puff hid the face)
+    if not f.pose.fx:
+        return None
+    marks = _down(paint(lambda c: [fn(c) for fn in f.pose.fx])[..., 3]) >= 0.25
+    n = int((marks & (f.ink <= INK_DARK)).sum())
+    return f"effect marks cover {n} px of ink" if n else None
+
+
+def prop_length(f: Frame) -> Optional[Tuple[float, bool, Pt, Pt]]:
+    """Visible length (cell px) of the held spoon or ladle along its axis, whether its head shows, its far end
+    and the axis direction (cell space), from the prop's pixels in the part map."""
+    ys, xs = np.nonzero(f.hi["prop"])
+    if len(xs) < 4 * SS * SS:
+        return None
+    pts = np.stack([xs, ys], 1).astype(float) / SS
+    c = pts.mean(0)
+    u = np.linalg.eigh(np.cov((pts - c).T))[1][:, -1]          # main axis of the prop's pixels
+    t = (pts - c) @ u
+    hands = np.stack(np.nonzero(f.m("hand"))[::-1], 1) + 0.5
+    gap = [np.hypot(*(hands - (c + u * e)).T).min() if len(hands) else 0.0 for e in (t.max(), t.min())]
+    if gap[1] > gap[0]:
+        u, t = -u, -t                                           # the far end is the one away from the fist
+    w = np.abs((pts - c) @ np.array([-u[1], u[0]]))
+    head = 2 * w[t > t.max() - 6].max() > 3.5                   # a spoon or ladle head is wider than its handle
+    far = c + u * t.max()
+    return float(t.max() - t.min()), bool(head), (float(far[0]), float(far[1])), (float(u[0]), float(u[1]))
+
+
+def rule_props(frames: List[Frame]) -> List[Tuple[int, str]]:
+    # spoon and ladle are rigid (L26: the spoon grew and shrank); only lips, stew and the fist may hide them
+    got = [(i, prop_length(f)) for i, f in enumerate(frames)]
+    got = [(i, g) for i, g in got if g]
+    whole = [g[0] for _, g in got if g[1]]
+    if not whole:
+        return []
+    ref, bad = float(np.median(whole)), []
+    for i, (length, head, far, u) in got:
+        if head:
+            if abs(length - ref) > PROP_TOL:
+                bad.append((i, f"prop length {length:.1f} px, the row's prop is {ref:.1f} px"))
+            continue
+        x, y = (int(round(far[k] + u[k] * (ref - length))) for k in (0, 1))   # where the hidden tip is
+        pot = pot_mask(frames[i].pose)
+        in_stew = _grow(pot, 2)[int(far[1]), int(far[0])]
+        holder = pot if in_stew else _fill_holes(frames[i].m("face"))
+        if length > ref + PROP_TOL or not (0 <= y < CELL_H and 0 <= x < CELL_W and holder[y, x]):
+            bad.append((i, f"prop shows {length:.1f} of {ref:.1f} px and its hidden tip is not in the "
+                           f"{'pot' if in_stew else 'mouth'}"))
+    return bad
+
+
+PART_LOOK = part_look()
+RULES = [rule_fang, rule_hat, rule_outline, rule_pot, rule_hands, rule_fx]
+
+
+def check_frames(rows: List[List[Pose]]) -> None:
+    """Run every rule on every distinct frame; raise SystemExit naming row, frame and rule on any violation."""
+    errors = []
+    for (name, _), poses in zip(ROW_SPEC, rows):
+        if name == "running-left":
+            continue                    # the mirrored running-right frames
+        frames = [frame(p) for p in poses]
+        for c, f in enumerate(frames):
+            for rule in RULES + ([rule_wave] if name == "waving" else []):
+                msg = rule(f)
+                if msg:
+                    errors.append(f"{name} frame {c}: {rule.__name__}: {msg}")
+        errors += [f"{name} frame {c}: rule_props: {msg}" for c, msg in rule_props(frames)]
+    if errors:
+        raise SystemExit("frame checks failed:\n  " + "\n  ".join(errors))
 
 
 def main() -> None:
     os.makedirs(OUT_DIR, exist_ok=True)
+    rows = row_poses()
+    check_frames(rows)
     atlas = Image.new("RGBA", (ATLAS_W, ATLAS_H), (0, 0, 0, 0))
-    for r, frames in enumerate(build_frames()):
+    for r, frames in enumerate(build_frames(rows)):
         for c, im in enumerate(frames):
             atlas.paste(im, (c * CELL_W, r * CELL_H))
     out = os.path.join(OUT_DIR, "spritesheet.webp")
