@@ -17,6 +17,7 @@ Load before creating a character or variant under `pets/`, changing any `sprites
 - Apply every rule in `references/art-guidelines.md`.
 - Before reporting any visual change, run `tools/review_sheets.py`, LOOK at every image it writes and fill its `checklist.md` per `references/review-checklist.md`. The parent does this even when a subagent drew; subagent self-QA is not enough.
 - Diff images on all channels (`getbbox(alpha_only=False)`); alpha-only diffs miss colour changes.
+- A variant whose generator imports another variant's code (e.g. a pixel variant drawn from the cartoon rig) gets a `make_pet.py --check` that renders in memory and exits 1 when it differs from its committed sheet; the generator it imports runs that check after its own build (example: `pets/chowder/`).
 - Every accepted version gets a commit and a tag `<character>-<variant>-vN`; `tools/validate_pet.py` must exit 0 and previews must be refreshed first.
 - Publishing, withdrawing and licence choice are the user's decisions. Fan art never uses `cc0`, `cc-by` or `cc-by-sa`.
 
@@ -35,7 +36,7 @@ Load before creating a character or variant under `pets/`, changing any `sprites
 Create:
 1. Gather references; write a feature checklist from them.
 2. Create `pets/<character>/<variant>/` with `pet.json` (`id` = Petdex slug) and `make_pet.py`, starting from an existing generator. Model one canonical view and mirror it for the other direction.
-3. Generate (output goes to a git-ignored `build/` or `out/`); copy the new `spritesheet.webp` into the variant folder, keeping its `pet.json`. Render the reference next to frame 0 and fix feature by feature.
+3. Generate (output goes to a git-ignored `build/` or `out/`); copy the new `spritesheet.webp` into the variant folder, keeping its `pet.json`. Render the reference next to frame 0 and fix feature by feature. Turn every measurable pose rule (a feature inside its outline, a hand touching its sleeve, a prop of fixed length) into a frame check in `make_pet.py` that stops the build with a clear message (example: `check_frames` in `pets/chowder/cartoon/make_pet.py`).
 4. Review per `references/review-checklist.md`, fix, repeat (about 4 rounds max).
 5. `python3 -I tools/make_previews.py pets/<character>/<variant>`, then `python3 -I tools/validate_pet.py pets/<character>/<variant>` → exit 0 (it fails on stale previews).
 6. Copy the folder to `~/.codex/pets/<id>/` and `~/.petdex/pets/<id>/` to test; tell the user to re-import it in Orca.
