@@ -14,7 +14,9 @@ thin handles. Hands and the small "o" mouth are drawn bigger than the rig's. Fra
 build when the reduction loses an eye, the fang, a hand or a piece of a prop, or leaves lone pixels.
 
 Usage:
-    python3 -I make_pet.py   # runs the pixel frame checks, renders out/spritesheet.webp and copies it here
+    python3 -I make_pet.py           # runs the pixel frame checks, renders out/spritesheet.webp and copies it here
+    python3 -I make_pet.py --check   # renders in memory and exits 1 if it differs from the committed sheet; the
+                                     # cartoon build runs it, because this script uses the rig's internals
 """
 from __future__ import annotations
 
@@ -517,8 +519,7 @@ def build_grids() -> List[List[Grid]]:
     return [[Grid(p, mirror=name == "running-left") for p in poses] for (name, _), poses in zip(ROW_SPEC, rows)]
 
 
-def main() -> None:
-    os.makedirs(OUT_DIR, exist_ok=True)
+def render_atlas() -> Image.Image:
     grids = build_grids()
     frames = [[finish(g) for g in row] for row in grids]
     check_frames(grids, frames)
@@ -527,6 +528,27 @@ def main() -> None:
         for c, rgba in enumerate(row):
             im = Image.fromarray(rgba).resize((W * SCALE, H * SCALE), Image.NEAREST)
             atlas.paste(im, (c * CELL_W, r * CELL_H + PAD_TOP))
+    return atlas
+
+
+def check_committed(atlas: Image.Image) -> None:
+    """Stop when the committed sheet is not what the current rig renders: the rig's internals changed under us."""
+    committed = np.asarray(Image.open(os.path.join(HERE, "spritesheet.webp")).convert("RGBA"))
+    diff = (np.asarray(atlas) != committed).any(axis=2)
+    rows = sorted({int(r) for r in np.nonzero(diff)[0] // CELL_H})
+    if rows:
+        sys.exit(f"chowder-pixel: the rig renders rows {rows} differently from the committed spritesheet.webp. "
+                 "If the cartoon change is intended, run pixel/make_pet.py and review the pixel sheet; "
+                 "otherwise fix the cartoon change.")
+    print("chowder-pixel: committed spritesheet.webp matches the rig")
+
+
+def main() -> None:
+    atlas = render_atlas()
+    if "--check" in sys.argv[1:]:
+        check_committed(atlas)
+        return
+    os.makedirs(OUT_DIR, exist_ok=True)
     out = os.path.join(OUT_DIR, "spritesheet.webp")
     atlas.save(out, "WEBP", lossless=True, quality=100, method=6, exact=True)
     shutil.copy2(out, os.path.join(HERE, "spritesheet.webp"))

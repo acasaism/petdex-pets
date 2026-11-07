@@ -10,7 +10,8 @@ is a short gag (see each row_*() docstring): squash and stretch, follow-through 
 
 Usage:
     python3 -I make_pet.py   # runs the frame checks (check_frames), renders out/spritesheet.webp and copies it
-                             # next to pet.json; a pose that breaks a rule stops the build first
+                             # next to pet.json; a pose that breaks a rule stops the build first; then it runs
+                             # ../pixel/make_pet.py --check, which fails if the rig change alters the pixel sheet
 
 Rig API (reused by the pixel variant):
     load_parts() -> {name: Part}: traced paths in model units, colours by class name (keys of CLASS_RGB).
@@ -35,6 +36,8 @@ import math
 import os
 import runpy
 import shutil
+import subprocess
+import sys
 import zlib
 from dataclasses import dataclass, field, replace
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
@@ -1756,6 +1759,10 @@ def main() -> None:
     atlas.save(out, "WEBP", lossless=True, quality=100, method=6, exact=True)
     shutil.copy2(out, os.path.join(HERE, "spritesheet.webp"))
     print("wrote", out, "and copied it next to pet.json")
+    # The pixel variant imports and patches this rig's internals: a change here must not alter it unnoticed.
+    pixel = os.path.join(HERE, "..", "pixel", "make_pet.py")
+    cache = ["-X", f"pycache_prefix={sys.pycache_prefix}"] if sys.pycache_prefix else []
+    sys.exit(subprocess.run([sys.executable, "-I", *cache, pixel, "--check"]).returncode)
 
 
 if __name__ == "__main__":
