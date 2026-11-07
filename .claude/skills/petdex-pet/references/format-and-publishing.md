@@ -31,6 +31,7 @@ Codex pet format, as shipped in Orca's `codex-pet-sprite-defaults.js`.
 
 ## Petdex CLI behaviour
 
+- The CLI needs Node >= 20.12 (older Node fails with `node:util` has no export `styleText`). Without sudo, the user installs fnm (`curl -fsSL https://fnm.vercel.app/install | bash`), then `fnm install 22 && fnm default 22`.
 - Login opens a browser: the user runs `npx petdex login`; never handle tokens.
 - `npx petdex submit <folder> --license <id>` — one folder per call. A parent folder with several pets asks an interactive confirmation that a non-TTY run cannot answer (it exits without submitting).
 - The CLI label is the folder name (e.g. `pixel`); the slug comes from `pet.json` `id`.

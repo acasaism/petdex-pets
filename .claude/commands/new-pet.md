@@ -9,7 +9,7 @@ Create a new pet for: $ARGUMENTS
 2. Collect what only the user knows before drawing. Ask one question at a time, and only for what the arguments and any attached images do not already answer:
    - character and source (show, film, game);
    - variants: pixel, cartoon or both;
-   - reference images: use the ones attached to this conversation; otherwise propose a source (for example the show's wiki) and download into the git-ignored `pets/<character>/refs/` (props in `refs/props/`, origins in `SOURCES.txt`);
+   - reference images: use the ones attached to this conversation; otherwise propose a source (for example the show's wiki) and download into the git-ignored `pets/<character>/refs/` (props in `refs/props/`, origins in `SOURCES.txt`); Fandom's image CDN rejects curl downloads, so ask the user to save those images from the browser;
    - the character's signature look per state where it matters: `failed` (panic), `running` (how they work), `review` (inspecting), `waiting` (asking);
    - whether it will be published: display name and licence (fan art: `cc-by-nc` or `all-rights-reserved`).
 3. Create a branch with one task per variant. When several characters are requested, handle them one at a time and get approval for each before starting the next.
