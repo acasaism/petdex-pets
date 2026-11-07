@@ -9,8 +9,8 @@ Drawn procedurally with Python (Pillow / pycairo) together with Claude Code.
 |---|---|---|---|
 | Courage the Cowardly Dog | `pets/courage/cartoon/` | `courage-the-cowardly-dog` | Approved (v4) |
 | Courage the Cowardly Dog (Pixel) | `pets/courage/pixel/` | `courage-the-cowardly-dog-pixel` | Approved (v4.2); v6 edit submitted 2026-10-11, queued for admin review |
-| Chowder | `pets/chowder/cartoon/` | `chowder` | Not published (v1) |
-| Chowder (Pixel) | `pets/chowder/pixel/` | `chowder-pixel` | Not published (v1) |
+| Chowder | `pets/chowder/cartoon/` | `chowder` | v1 submitted 2026-11-07, held for review |
+| Chowder (Pixel) | `pets/chowder/pixel/` | `chowder-pixel` | v1 submitted 2026-11-07, held for review |
 
 Track submissions at https://petdex.dev/u/acasaism.
 
